@@ -1,0 +1,45 @@
+{
+  "_comment": "Касса режет бренд до 4–8 символов, и одинаковый бренд пишется по-разному. Это накапливаемый вручную актив: код должен читать словарь из файла, а не зашивать его внутрь, и предъявлять пользователю список нераспознанных префиксов для пополнения. Правила применяются к очищенному названию, первое совпадение выигрывает.",
+  "version": "1.0",
+  "confidence": {
+    "confirmed": "сокращение однозначно раскрывается по данным (в выборке встречается и полное написание, и сокращённое)",
+    "probable": "раскрытие правдоподобно, но полного написания в выборке нет — подтвердить у пользователя перед показом в интерфейсе"
+  },
+  "brands": [
+    { "brand": "Вкуснотеево",     "match": "ВКУСНОТ|ВКУСН\\.",        "confidence": "confirmed" },
+    { "brand": "Савушкин",        "match": "САВУШ|САВ\\.",            "confidence": "confirmed" },
+    { "brand": "Простоквашино",   "match": "ПРОСТ\\.",                "confidence": "confirmed" },
+    { "brand": "Домик в деревне", "match": "ДВД|Д\\.В\\s*Д\\.",       "confidence": "confirmed" },
+    { "brand": "Брест-Литовск",   "match": "БР-ЛИТ",                  "confidence": "confirmed" },
+    { "brand": "ЭкоНива",         "match": "ЭКОНИВА|\\bЭН\\b",        "confidence": "probable", "note": "'МАСЛО СЛ ЭН 82,5%', 'КЕФИР ЭН 1%' — 'ЭН' раскрывается как ЭкоНива по совпадению ассортимента; подтвердить" },
+    { "brand": "Экомилк",         "match": "ЭКОМИЛК|ЭКОМ\\.",         "confidence": "confirmed" },
+    { "brand": "Село Зелёное",    "match": "СЕЛО ЗЕЛ|СЕЛ\\.ЗЕЛ",      "confidence": "confirmed" },
+    { "brand": "Бежин луг",       "match": "БЕЖИН ЛУГ",               "confidence": "confirmed" },
+    { "brand": "Весёлый молочник","match": "ВЕСЕЛ МОЛ|ВЕС[ЁЕ]ЛЫЙ МОЛ","confidence": "confirmed" },
+    { "brand": "Матвеевский",     "match": "МАТВ\\.",                 "confidence": "probable" },
+    { "brand": "Му-у",            "match": "\\bМУ\\b",                "confidence": "probable" },
+    { "brand": "Viola",           "match": "ВИОЛА|VIOLA",             "confidence": "confirmed" },
+    { "brand": "Valio",           "match": "VALIO|ВАЛИО",             "confidence": "confirmed" },
+    { "brand": "President",       "match": "PRESIDENT|ПРЕЗИД",        "confidence": "confirmed" },
+    { "brand": "Вологодская",     "match": "ВОЛОГ",                   "confidence": "confirmed" },
+    { "brand": "Свитлогорье",     "match": "СВИТ\\.|СВЕТ\\.",         "confidence": "probable", "note": "Префиксы 'СВИТ.' и 'СВЕТ.' встречаются на однотипном ассортименте (сырки, мороженое, молоко). Похоже на один бренд с двумя написаниями, но подтвердить обязательно — если это разные бренды, правило разведёт SKU неверно." },
+    { "brand": "КМЗ",            "match": "\\bКМЗ\\b",                "confidence": "confirmed" },
+    { "brand": "Глобус",          "match": "ГЛОБ\\b|ГЛОБУС",          "confidence": "confirmed", "note": "собственная торговая марка сети" },
+    { "brand": "Мясновъ",         "match": "МЪ ФЕРМА|МЪ ПЕКА|\\bММХ\\b","confidence": "confirmed", "note": "собственная торговая марка сети" },
+    { "brand": "Агуша",           "match": "АГУША",                   "confidence": "confirmed" },
+    { "brand": "Ламбер",          "match": "ЛАМБЕР",                  "confidence": "confirmed" },
+    { "brand": "Ульянка",         "match": "УЛЬЯНКА",                 "confidence": "confirmed" },
+    { "brand": "Чизолини",        "match": "ЧИЗОЛ",                   "confidence": "probable" },
+    { "brand": "Mr.Ricco",        "match": "MR\\.?RICCO",             "confidence": "confirmed" },
+    { "brand": "Пудовъ",          "match": "ПУДОВ",                   "confidence": "confirmed" },
+    { "brand": "Оксское",         "match": "ОКСКОЕ",                  "confidence": "confirmed" },
+    { "brand": "Боржоми",         "match": "БОРЖОМ",                  "confidence": "confirmed" },
+    { "brand": "Ессентуки",       "match": "ЕСС\\.|ЕССЕНТУК",         "confidence": "confirmed" },
+    { "brand": "Донат",           "match": "ДОНАТ",                   "confidence": "confirmed" }
+  ],
+  "unresolved_policy": {
+    "value": "—",
+    "rule": "Нераспознанный бренд НЕ блокирует SKU: жирность и фасовка сами по себе различают позицию (в демо самый частый SKU — «— · 25% · 300г», 36 покупок). Бренд показывается как «—».",
+    "diagnostics": "Выводить топ-20 нераспознанных префиксов по числу покупок — это очередь на пополнение словаря."
+  }
+}
