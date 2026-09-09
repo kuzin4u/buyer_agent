@@ -11,7 +11,10 @@ from ..history import History
 from .build import Profile, GroupStat, VenueStat, build
 from .basket import Basket, BasketLine, for_period, for_average_txn
 from .lapsed import Lapse, lapsed, to_restock
+from .spending import (Bucket, Trend, breakdown, growth, monthly_series,
+                       summary)
 
 __all__ = ["History", "Profile", "GroupStat", "VenueStat", "build",
            "Basket", "BasketLine", "for_period", "for_average_txn",
-           "Lapse", "lapsed", "to_restock"]
+           "Lapse", "lapsed", "to_restock",
+           "Bucket", "Trend", "breakdown", "growth", "monthly_series", "summary"]
