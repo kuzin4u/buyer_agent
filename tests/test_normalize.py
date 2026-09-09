@@ -113,6 +113,53 @@ class BrandOrderTest(unittest.TestCase):
         self.assertTrue(all(i.brand is None for i in weighted))
 
 
+class SelfDeterminedAttributesTest(unittest.TestCase):
+    """Р-14: знаемое не должно жить в ветке незнаемого.
+
+    Признак, который определяется самим названием, обязан вычисляться до
+    всякого ветвления. Иначе он молча теряется на позициях, где предыдущий шаг
+    не сработал, и выглядит это как пробел в словаре, а не как дефект кода.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = fixture.run()
+        cls.no_group = [i for i in cls.result.items
+                        if i.group is None and not i.excluded]
+
+    def test_weightedness_known_without_category(self):
+        """«КАРТОФ ЕГИП ВЕС» весовой, даже если категория не распозналась."""
+        weighted = [i for i in self.no_group if i.weighted]
+        self.assertGreater(len(weighted), 300)
+        for item in weighted:
+            self.assertIsNotNone(item.weighted_reason)
+
+    def test_brand_known_without_category(self):
+        from agent.adapters.receipts_fns.sku import UNKNOWN
+        branded = [i for i in self.no_group if i.brand and i.brand != UNKNOWN]
+        self.assertGreater(len(branded), 100)
+
+    def test_fat_known_without_category(self):
+        self.assertGreater(len([i for i in self.no_group if i.fat]), 100)
+
+    def test_fat_known_for_weighted_goods(self):
+        """§5 объявляет неприменимыми бренд и штучную фасовку. Жирности там нет."""
+        weighted = [i for i in self.result.items if i.weighted]
+        self.assertGreater(len([i for i in weighted if i.fat]), 150)
+
+    def test_true_dependencies_are_kept(self):
+        """Что зависит по существу — должно зависеть и в коде."""
+        for item in self.result.items:
+            if item.key is not None:
+                self.assertIsNotNone(item.group, item.name)
+            if item.pack is not None:
+                self.assertIsNotNone(item.group, item.name)
+            if item.unit_price is not None:
+                self.assertTrue(item.weighted or item.pack, item.name)
+            if item.dept is not None:
+                self.assertIsNotNone(item.group, item.name)
+
+
 class RunResidueTest(unittest.TestCase):
     """Ни одна позиция прогона не должна унести служебный мусор в SKU."""
 

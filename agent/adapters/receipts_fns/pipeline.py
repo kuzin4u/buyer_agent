@@ -202,30 +202,34 @@ class Pipeline:
             item.excluded = True
             return item
 
+        # --- Признаки, определяемые САМИМ названием -------------------------
+        # Они не зависят ни от категории, ни от фасовки, поэтому и вычисляются
+        # до всякого ветвления (docs/DECISIONS.md Р-14). Если знаемое считать
+        # внутри успешной ветки другого шага, оно молча теряется на позициях,
+        # где тот шаг не сработал, — и выглядит это как пробел в словаре.
+        item.weighted_reason = N.weighted_reason(rules, match, fractional)
+        item.fat = N.extract_fat(match)
+        if not item.weighted:
+            # у весового бренд неприменим, а не неизвестен (SPEC §5)
+            item.brand = N.find_brand(rules, match)
+
+        # --- Признаки, у которых зависимость настоящая ----------------------
         group = N.classify_item(rules, match)
         if group is None:
             return item
         item.group = group["id"]
-        item.dept = group.get("dept")
+        item.dept = group.get("dept")          # свойство категории, не позиции
         item.food_group = group.get("food", True)
 
-        # весовость — ДО извлечения фасовки (docs/DECISIONS.md Р-3)
-        item.weighted_reason = N.weighted_reason(rules, match, fractional)
-        if item.weighted_reason:
+        if item.weighted:
             item.unit = "kg"
             item.unit_price = raw_item.price      # у весовых цена уже ₽/кг
             item.key = bulk_sku(item.group, match)
             return item
 
-        # Бренд и жирность знаемы независимо от фасовки, и спрашивать их надо
-        # ДО неё. Раньше они вычислялись после успешного извлечения фасовки, и
-        # у обрезанных кассой названий — «ВОДА БОРЖОМИ МИН.ГИД», «АЛД.ВОДА
-        # ЕСС.ЦЕЛ.МИН» — бренд не спрашивался вовсе, хотя правило в словаре
-        # есть. 765 покупок по 12 маркам выглядели как пробел в словаре, а были
-        # пробелом в порядке вызовов.
-        item.brand = N.find_brand(rules, match)
-        item.fat = N.extract_fat(match)
-
+        # Фасовка зависит от категории по существу: голое число читается как
+        # миллилитры у жидкого и как граммы у остального, а голый литраж
+        # берётся только у напитков (SPEC §5).
         pack = N.extract_pack(rules, match, item.group)
         if pack is None:
             return item
