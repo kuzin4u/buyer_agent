@@ -78,6 +78,41 @@ class FoldTest(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class BrandOrderTest(unittest.TestCase):
+    """Бренд спрашивается ДО извлечения фасовки.
+
+    У обрезанных кассой названий фасовки в тексте нет, но бренд есть. Пока
+    find_brand вызывался после успешного извлечения фасовки, 765 покупок по
+    12 маркам выглядели пробелом в словаре, хотя правила в brands.json были.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = fixture.run()
+        cls.by_name = {}
+        for item in cls.result.items:
+            cls.by_name.setdefault(item.name, item)
+
+    def test_brand_known_without_pack(self):
+        item = self.by_name.get("ВОДА БОРЖОМИ МИН.ГИД")
+        self.assertIsNotNone(item)
+        self.assertIsNone(item.pack, "у этого названия фасовки в тексте нет")
+        self.assertEqual(item.brand, "Боржоми")
+
+    def test_truncated_names_still_resolve(self):
+        for name, brand in (("АЛД.ВОДА ЕСС.ЦЕЛ.МИН", "Ессентуки"),
+                            ("СВЕТ.МОЛОКО ЦЕЛ.3,3-", "Свитлогорье")):
+            item = self.by_name.get(name)
+            self.assertIsNotNone(item, name)
+            self.assertEqual(item.brand, brand, name)
+
+    def test_weighted_goods_have_no_brand(self):
+        """SPEC §5: у весового бренд неприменим, а не неизвестен."""
+        weighted = [i for i in self.result.items if i.weighted]
+        self.assertTrue(weighted)
+        self.assertTrue(all(i.brand is None for i in weighted))
+
+
 class RunResidueTest(unittest.TestCase):
     """Ни одна позиция прогона не должна унести служебный мусор в SKU."""
 

@@ -217,13 +217,20 @@ class Pipeline:
             item.key = bulk_sku(item.group, match)
             return item
 
+        # Бренд и жирность знаемы независимо от фасовки, и спрашивать их надо
+        # ДО неё. Раньше они вычислялись после успешного извлечения фасовки, и
+        # у обрезанных кассой названий — «ВОДА БОРЖОМИ МИН.ГИД», «АЛД.ВОДА
+        # ЕСС.ЦЕЛ.МИН» — бренд не спрашивался вовсе, хотя правило в словаре
+        # есть. 765 покупок по 12 маркам выглядели как пробел в словаре, а были
+        # пробелом в порядке вызовов.
+        item.brand = N.find_brand(rules, match)
+        item.fat = N.extract_fat(match)
+
         pack = N.extract_pack(rules, match, item.group)
         if pack is None:
             return item
 
         item.unit, item.pack, item.pack_source = pack
-        item.brand = N.find_brand(rules, match)
-        item.fat = N.extract_fat(match)
         item.unit_price = raw_item.price / (item.pack or 1)
         item.key = unit_sku(item.group, item.brand, item.fat, item.unit, item.pack)
         return item
