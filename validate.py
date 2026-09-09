@@ -58,6 +58,9 @@ PACK_RULES = [
 ]
 DRINKS = {"voda", "sok", "pivo", "vino", "krepkiy"}
 RE_BARE_L = re.compile(r"\b([01],\d{1,2})\s*$")
+RE_SHT = re.compile(r"(\d+)\s*ШТ\b")
+RE_BARE_NUM = re.compile(r"(?<![.,\d])(\d{3,4})(?!\s*(Г|КГ|МЛ|Л|ШТ|%))\s*$")
+LIQUID = {"moloko", "kefir", "slivki", "voda", "sok", "pivo", "vino", "krepkiy", "maslo_rast"}
 
 
 def clean(name):
@@ -89,21 +92,48 @@ def find_brand(name):
 
 
 def extract_pack(name, group_id):
-    """Возвращает (unit, value) в кг или литрах, либо None."""
+    """Возвращает (unit, value, источник) в кг/литрах/штуках, либо None."""
     n = RE_DIMS.sub(" ", name)
     n = RE_FAT.sub(" ", n)  # жирность не фасовка
     for _, rx, conv in PACK_RULES:
         m = rx.search(n)
         if m:
             try:
-                return conv(float(m.group(1).replace(",", ".")))
+                u, v = conv(float(m.group(1).replace(",", ".")))
+                return (u, v, "явная единица")
             except ValueError:
                 return None
     if group_id in DRINKS:
         m = RE_BARE_L.search(n)
         if m:
-            return ("l", float(m.group(1).replace(",", ".")))
+            return ("l", float(m.group(1).replace(",", ".")), "литраж без единицы")
+    m = RE_SHT.search(n)
+    if m:
+        v = float(m.group(1))
+        # 1..60 — правдоподобный диапазон штучной фасовки; больше означает
+        # слипшийся код категории: «ЯЙЦО СМЕТ С210ШТ» = С2 + 10ШТ
+        if 1 <= v <= 60:
+            return ("pcs", v, "число перед ШТ")
+    m = RE_BARE_NUM.search(n)
+    if m:
+        v = float(m.group(1))
+        # единица по категории: жидкое — миллилитры, остальное — граммы
+        return (("l", v / 1000, "голое число (мл)") if group_id in LIQUID
+                else ("kg", v / 1000, "голое число (г)"))
     return None
+
+
+def fractional_names(rec, food_shops):
+    """Названия, у которых больше половины покупок с дробным количеством.
+    Это весовой товар, даже если слова ВЕС в названии нет: БАНАНЫ, ЛУК, ЛИМОНЫ."""
+    q = defaultdict(list)
+    for r in rec:
+        canon, tier = classify_shop(r["shop"])
+        if canon in food_shops:
+            for it in r["items"]:
+                q[clean(it["n"])].append(it["q"])
+    return {n for n, v in q.items()
+            if v and sum(1 for x in v if abs(x - round(x)) > 1e-9) / len(v) >= 0.5}
 
 
 def main():
@@ -163,7 +193,9 @@ def main():
     print("=" * 62)
     print("3. ПОЗИЦИИ: категоризация, фасовка, бренд")
     print("=" * 62)
+    FRACTIONAL = fractional_names(REC, set(shop_stat.keys()))
     total = excluded = matched = with_pack = weighted = 0
+    by_source = Counter()
     unmatched_names = Counter()
     brand_hit = 0
     sku = defaultdict(list)
@@ -180,19 +212,22 @@ def main():
                 unmatched_names[n] += 1
                 continue
             matched += 1
-            if RE_WEIGHTED.search(n):
+            if RE_WEIGHTED.search(n) or n in FRACTIONAL:
                 weighted += 1
                 with_pack += 1
+                by_source["весовой" if RE_WEIGHTED.search(n) else "весовой (дробное кол-во)"] += 1
                 continue
             p = extract_pack(n, g["id"])
             if p:
                 with_pack += 1
+                by_source[p[2]] += 1
                 brand = find_brand(n)
                 if brand != "—":
                     brand_hit += 1
                 fat = RE_FAT.search(n)
+                unit = {"kg": "кг", "l": "л", "pcs": "шт"}[p[0]]
                 key = (g["id"], brand, fat.group(1) if fat else "—",
-                       f"{p[1]:g}{'кг' if p[0] == 'kg' else 'л'}")
+                       f"{p[1]:g}{unit}")
                 sku[key].append((r["dt"][:4], it["p"] / (p[1] or 1)))
 
     analysable = total - excluded
@@ -202,6 +237,9 @@ def main():
     print(f"  из них весовых (цена уже ₽/кг): {weighted}")
     print(f"  фасовка или вес определены: {with_pack} ({with_pack/analysable:.1%} от анализируемых)")
     print(f"  бренд распознан: {brand_hit} из {with_pack - weighted} штучных")
+    print("  чем определена фасовка:")
+    for k, v in by_source.most_common():
+        print(f"    {v:5}  {k}")
     print(f"  уникальных SKU: {len(sku)}")
 
     print("\n  Топ-15 нераспознанных названий — очередь на пополнение categories.json:")
