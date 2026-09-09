@@ -31,7 +31,8 @@ class NormalizedItem:
     """
 
     dt: str
-    venue: str
+    venue: str          # отображаемое имя площадки
+    venue_id: str       # нейтральное: None, если площадка не установлена
     segment: str
     raw: str
     name: str       # отображаемое название: Ё сохранена
@@ -157,35 +158,40 @@ class Pipeline:
         for idx, (canon, tier, r) in enumerate(classified):
             txn = str(idx)
             if tier in food_tiers:
-                venue, segment = canon, tier
+                venue, venue_id, segment = canon, canon, tier
             elif idx in resolved:
-                venue, segment = UNKNOWN_VENUE, UNKNOWN_FOOD
+                # Площадка не установлена: сравнивать такие покупки не с чем,
+                # поэтому наружу уходит None, а не имя-заглушка. §7 запрещает
+                # им участвовать в сравнении магазинов — так запрет становится
+                # свойством данных, а не памяти разработчика.
+                venue, venue_id, segment = UNKNOWN_VENUE, None, UNKNOWN_FOOD
             else:
                 # Непродуктовое и неразобранное: в ценовой анализ не идёт, но
                 # деньги учитываются — это тоже траты пользователя (SPEC §8.8).
                 for it in r.items:
                     out.outlays.append(Outlay(
                         txn=txn, ts=r.dt, amount=it.total,
-                        venue=canon, segment=tier))
+                        venue=canon if isinstance(canon, str) else None,
+                        segment=tier))
                 continue
 
             for it in r.items:
-                item = self._item(venue, segment, r, it, out.fractional)
+                item = self._item(venue, venue_id, segment, r, it, out.fractional)
                 out.items.append(item)
                 out.outlays.append(Outlay(
-                    txn=txn, ts=r.dt, amount=it.total, venue=venue,
+                    txn=txn, ts=r.dt, amount=it.total, venue=venue_id,
                     segment=segment, group=item.group, dept=item.dept))
 
         return out
 
-    def _item(self, venue, segment, receipt, raw_item, fractional):
+    def _item(self, venue, venue_id, segment, receipt, raw_item, fractional):
         rules = self.rules
         name = N.clean(rules, raw_item.name)
         match = N.fold(rules, name)
         item = NormalizedItem(
-            dt=receipt.dt, venue=venue, segment=segment, raw=raw_item.name,
-            name=name, match=match, qty=raw_item.qty, price=raw_item.price,
-            amount=raw_item.total)
+            dt=receipt.dt, venue=venue, venue_id=venue_id, segment=segment,
+            raw=raw_item.name, name=name, match=match, qty=raw_item.qty,
+            price=raw_item.price, amount=raw_item.total)
 
         if N.is_excluded(rules, match):
             item.excluded = True
@@ -224,7 +230,7 @@ def to_history(run, principal="owner"):
     """
     events = [
         Event(ts=i.dt, key=i.key, qty=i.qty, unit_price=i.unit_price,
-              amount=i.amount, venue=i.venue)
+              amount=i.amount, venue=i.venue_id)
         for i in run.items if i.priced
     ]
     return History(principal=principal, events=events, outlays=list(run.outlays),
