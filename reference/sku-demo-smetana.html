@@ -1,0 +1,89 @@
+<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKU-анализ: сметана</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#14202b;--soft:#5a6673;--rule:#e0e6eb;--rule2:#eef2f5;--paper:#f6f8fa;--card:#fff;--blue:#1e6fb8;--blue-bg:#e8f1f9;--green:#0b8a5f;--green-bg:#e3f4ec;--red:#c0392b;--amber:#c77800;--gold:#8a6810;--gold-bg:#fbf4e3;--purple:#7b4bc4;
+ --sans:'Golos Text',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+.wrap{max-width:1160px;margin:0 auto;padding:0 20px}
+header{background:linear-gradient(120deg,#14202b,#1e3247);color:#fff;padding:28px 0 22px}
+.kick{font-size:12.5px;color:#9fb4c7;text-transform:uppercase;font-weight:600;letter-spacing:.03em}
+h1{font-size:clamp(23px,2.8vw,32px);margin:8px 0 8px;font-weight:800}
+.sub{color:#c6d3de;margin:0;font-size:14.5px;max-width:80ch}
+.kpis{display:flex;gap:22px;flex-wrap:wrap;margin-top:16px}.kpi .v{font-family:var(--mono);font-size:22px;font-weight:700}.kpi .l{font-size:11.5px;color:#9fb4c7}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:18px;margin:18px 0}
+h2{font-size:18px;margin:0 0 6px}.hint{color:var(--soft);font-size:13px;margin:0 0 14px;max-width:92ch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 10px;border-bottom:2px solid var(--rule);color:var(--soft);font-size:11px;text-transform:uppercase;font-weight:600;white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--rule2);vertical-align:middle}
+tr:hover td{background:var(--paper)}
+.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.sku-brand{font-weight:600}.sku-detail{font-size:12px;color:var(--soft)}
+.tag{display:inline-block;font-size:11px;font-family:var(--mono);padding:2px 7px;border-radius:5px;margin-right:3px}
+.tag.fat{background:var(--blue-bg);color:var(--blue)}.tag.w{background:var(--green-bg);color:var(--green)}
+.freq-bar{height:7px;background:var(--rule2);border-radius:4px;overflow:hidden;min-width:60px}
+.freq-bar span{display:block;height:100%;background:var(--purple)}
+.stars{display:flex;gap:2px}.star{cursor:pointer;font-size:16px;color:#d4dbe2}.star.on{color:var(--amber)}
+.chart-box{position:relative;height:360px}
+.disclaim{background:var(--gold-bg);border-left:3px solid var(--gold);padding:12px 15px;border-radius:0 8px 8px 0;font-size:13px;color:#6b520c;margin:14px 0}
+.disclaim b{color:var(--ink)}
+.na{color:#b8c2cc}
+footer{padding:22px 0 50px;color:var(--soft);font-size:12px;border-top:1px solid var(--rule);margin-top:16px}
+</style></head><body>
+<header><div class="wrap">
+<div class="kick">Демо · SKU-анализ на реальных чеках Глобуса</div>
+<h1>Сметана — до конкретной позиции</h1>
+<p class="sub">Не «сметана вообще», а конкретные SKU: бренд + жирность + фасовка. Видно, что вы берёте чаще, по какой цене, и как менялась цена по каждой позиции. Оценку вкуса ставите сами — её в чеке нет.</p>
+<div class="kpis" id="kpis"></div>
+</div></header>
+<main class="wrap">
+<div class="card">
+<h2>Ваши SKU сметаны (по частоте покупок)</h2>
+<p class="hint">Каждая строка — конкретная сметана, которую вы покупали. Частота показывает, насколько это ваш регулярный выбор. Звёзды вкуса — ваша оценка (сохраняется в браузере).</p>
+<div style="overflow-x:auto"><table id="skuTable"></table></div>
+</div>
+<div class="card">
+<h2>Динамика цены по вашим топ-SKU</h2>
+<p class="hint">Как менялась цена конкретных позиций по годам — честнее, чем «сметана в среднем», потому что сравнивается одинаковое с одинаковым.</p>
+<div class="chart-box"><canvas id="dynChart"></canvas></div>
+</div>
+<div class="disclaim"><b>Что извлекается из чека, а что нет.</b> Жирность и фасовка — почти всегда (в названии). Бренд — часто, но касса сокращает («ВКУСН» → Вкуснотеево, «ВОЛОГ» → Вологодская); где не разобрать — стоит «—». <b>Вкус</b> — только ваша оценка. <b>Дата выпуска</b> (свежесть) — в чеке ФНС её нет вообще, доступна лишь на упаковке при покупке.</div>
+</main>
+<footer><div class="wrap">Демо SKU-анализа · сметана из чеков Глобуса · показывает уровень детализации для ИИ-агента</div></footer>
+<script>
+const D={"years": ["2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026"], "total": 199, "nsku": 25, "rows": [{"key": "— · 25% · 300г", "brand": "—", "fat": "25%", "weight": "300г", "count": 36, "med": 121, "example": "СМЕТАНА 25%300Г", "first": "2024-10-28", "last": "2026-09-05", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": 132, "2025": 132, "2026": 116}}, {"key": "Viola · 23% · 315г", "brand": "Viola", "fat": "23%", "weight": "315г", "count": 32, "med": 123, "example": "СМЕТАНА ВИОЛА23%315Г", "first": "2022-12-09", "last": "2024-11-22", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": 123, "2023": 112, "2024": 125, "2025": null, "2026": null}}, {"key": "КМЗ · 20% · 450г", "brand": "КМЗ", "fat": "20%", "weight": "450г", "count": 16, "med": 144, "example": "СМЕТАНА КМЗ 20% 450Г", "first": "2019-04-27", "last": "2024-12-20", "dyn": {"2017": null, "2018": null, "2019": 98, "2020": null, "2021": null, "2022": 148, "2023": 150, "2024": 156, "2025": null, "2026": null}}, {"key": "Вкуснотеево · 20% · 300г", "brand": "Вкуснотеево", "fat": "20%", "weight": "300г", "count": 14, "med": 85, "example": "СМЕТАН.ВКУСН.20%300Г", "first": "2022-06-07", "last": "2026-08-28", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": 82, "2023": 85, "2024": null, "2025": 110, "2026": 100}}, {"key": "President · 20% · —", "brand": "President", "fat": "20%", "weight": "—", "count": 13, "med": 161, "example": "СМЕТАНА PRESIDENT20%", "first": "2023-06-22", "last": "2026-05-19", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": 125, "2024": 124, "2025": null, "2026": 166}}, {"key": "Экомилк · — · 315г", "brand": "Экомилк", "fat": "—", "weight": "315г", "count": 11, "med": 117, "example": "СМЕТАНА ЭКОМИЛК315Г", "first": "2023-03-13", "last": "2023-07-17", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": 117, "2024": null, "2025": null, "2026": null}}, {"key": "Valio · 23% · —", "brand": "Valio", "fat": "23%", "weight": "—", "count": 10, "med": 102, "example": "СМЕТАНА VALIO 23%", "first": "2019-07-16", "last": "2022-04-29", "dyn": {"2017": null, "2018": null, "2019": 99, "2020": 109, "2021": null, "2022": 110, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "Село Зелёное · — · 300г", "brand": "Село Зелёное", "fat": "—", "weight": "300г", "count": 9, "med": 80, "example": "СМЕТАНА СЕЛО ЗЕЛ300Г", "first": "2024-06-07", "last": "2024-09-30", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": 80, "2025": null, "2026": null}}, {"key": "Глобус · 30% · —", "brand": "Глобус", "fat": "30%", "weight": "—", "count": 6, "med": 104, "example": "СМЕТАНА ГЛОБ 30% 315", "first": "2021-07-20", "last": "2022-07-07", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": 85, "2022": 114, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "— · 20% · 315г", "brand": "—", "fat": "20%", "weight": "315г", "count": 5, "med": 71, "example": "СМЕТАНА БЛ 20% 315Г", "first": "2019-05-04", "last": "2024-05-14", "dyn": {"2017": null, "2018": null, "2019": 60, "2020": null, "2021": 65, "2022": 86, "2023": null, "2024": 85, "2025": null, "2026": null}}, {"key": "— · — · 30г", "brand": "—", "fat": "—", "weight": "30г", "count": 5, "med": 46, "example": "СМЕТАНА ПОРЦ 30Г", "first": "2025-01-18", "last": "2026-01-12", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": 46, "2026": 44}}, {"key": "РАЭ · 20% · 500г", "brand": "РАЭ", "fat": "20%", "weight": "500г", "count": 4, "med": 111, "example": "СМЕТАНА 20% РАЭ 500Г", "first": "2022-09-14", "last": "2022-12-19", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": 111, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "Вологодская · 25% · 400г", "brand": "Вологодская", "fat": "25%", "weight": "400г", "count": 3, "med": 187, "example": "СМЕТАНА ВОЛ.25% 400Г", "first": "2019-07-16", "last": "2025-03-07", "dyn": {"2017": null, "2018": null, "2019": 128, "2020": null, "2021": null, "2022": null, "2023": null, "2024": 203, "2025": 187, "2026": null}}, {"key": "РАЭ · 20% · 320г", "brand": "РАЭ", "fat": "20%", "weight": "320г", "count": 3, "med": 80, "example": "СМЕТАНА РАЭ 20% 320Г", "first": "2021-11-17", "last": "2024-06-21", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": 76, "2022": null, "2023": null, "2024": 85, "2025": null, "2026": null}}, {"key": "— · — · 300г", "brand": "—", "fat": "—", "weight": "300г", "count": 3, "med": 170, "example": "СМЕТАНА ЧАБАН 300Г", "first": "2024-06-10", "last": "2024-06-21", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": 170, "2025": null, "2026": null}}, {"key": "— · 24% · —", "brand": "—", "fat": "24%", "weight": "—", "count": 3, "med": 161, "example": "СМЕТАНА СОФ ПОДВ24%", "first": "2025-04-04", "last": "2025-08-25", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": 161, "2026": null}}, {"key": "Valio · — · —", "brand": "Valio", "fat": "—", "weight": "—", "count": 2, "med": 100, "example": "СМЕТАНА VALIO 23", "first": "2017-12-26", "last": "2018-04-13", "dyn": {"2017": 100, "2018": 99, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "Вологодская · — · 400г", "brand": "Вологодская", "fat": "—", "weight": "400г", "count": 2, "med": 118, "example": "СМЕТАНА ВОЛ.25  400Г", "first": "2018-05-25", "last": "2018-07-06", "dyn": {"2017": null, "2018": 118, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "— · 20% · 180г", "brand": "—", "fat": "20%", "weight": "180г", "count": 2, "med": 42, "example": "СМЕТАНА БЛ 20% 180Г", "first": "2019-03-21", "last": "2020-10-22", "dyn": {"2017": null, "2018": null, "2019": 39, "2020": 45, "2021": null, "2022": null, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "— · — · —", "brand": "—", "fat": "—", "weight": "—", "count": 2, "med": 116, "example": "СМЕТАНА", "first": "2019-04-04", "last": "2019-07-16", "dyn": {"2017": null, "2018": null, "2019": 116, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": null, "2026": null}}, {"key": "— · 20% · —", "brand": "—", "fat": "20%", "weight": "—", "count": 2, "med": 78, "example": "СМЕТАНА 20%", "first": "2024-12-09", "last": "2024-12-09", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": 78, "2025": null, "2026": null}}, {"key": "Асеньевская · — · 300г", "brand": "Асеньевская", "fat": "—", "weight": "300г", "count": 2, "med": 77, "example": "СМЕТАНА АСНЕ.ФЕР300Г", "first": "2025-02-17", "last": "2025-02-17", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": 77, "2026": null}}, {"key": "— · 30% · 300г", "brand": "—", "fat": "30%", "weight": "300г", "count": 2, "med": 142, "example": "СМЕТАНА ЭК 30%300Г", "first": "2025-04-04", "last": "2025-09-03", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": 142, "2026": null}}, {"key": "— · 30% · 350г", "brand": "—", "fat": "30%", "weight": "350г", "count": 2, "med": 212, "example": "СМЕТАНА ПРЕЗИДЕНТ   30% 350Г", "first": "2026-02-16", "last": "2026-02-16", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": null, "2026": 212}}, {"key": "— · 15% · 320г", "brand": "—", "fat": "15%", "weight": "320г", "count": 2, "med": 107, "example": "СМЕТАНА 15% 320Г", "first": "2026-09-02", "last": "2026-09-02", "dyn": {"2017": null, "2018": null, "2019": null, "2020": null, "2021": null, "2022": null, "2023": null, "2024": null, "2025": null, "2026": 107}}]};const $=id=>document.getElementById(id);
+const RATE='sku_taste_v1';let taste={};try{taste=JSON.parse(localStorage.getItem(RATE)||'{}');}catch(e){}
+$('kpis').innerHTML=`<div class="kpi"><div class="v">${D.total}</div><div class="l">покупок сметаны</div></div>
+<div class="kpi"><div class="v">${D.nsku}</div><div class="l">разных SKU</div></div>
+<div class="kpi"><div class="v">${D.years[0]}–${D.years.at(-1)}</div><div class="l">период</div></div>`;
+const maxc=Math.max(...D.rows.map(r=>r.count));
+function stars(k,v){let s='<div class="stars" data-k="'+encodeURIComponent(k)+'">';for(let i=1;i<=5;i++)s+=`<span class="star ${i<=v?'on':''}" data-v="${i}">★</span>`;return s+'</div>';}
+function buildTable(){
+ let h='<tr><th>Бренд</th><th>Характеристики</th><th class="num">Куплено раз</th><th style="width:120px">Частота</th><th class="num">Цена ₽</th><th>Период покупок</th><th>Вкус</th></tr>';
+ D.rows.forEach(r=>{const t=taste[r.key]||0;
+  h+=`<tr><td class="sku-brand">${r.brand}</td>
+   <td><span class="tag fat">${r.fat}</span><span class="tag w">${r.weight}</span><div class="sku-detail">${r.example}</div></td>
+   <td class="num">${r.count}</td>
+   <td><div class="freq-bar"><span style="width:${Math.round(r.count/maxc*100)}%"></span></div></td>
+   <td class="num">${r.med}</td>
+   <td class="sku-detail">${r.first} — ${r.last}</td>
+   <td>${stars(r.key,t)}</td></tr>`;});
+ $('skuTable').innerHTML=h;
+ $('skuTable').querySelectorAll('.star').forEach(st=>st.addEventListener('click',()=>{
+   const box=st.closest('.stars'),k=decodeURIComponent(box.dataset.k),v=+st.dataset.v;
+   taste[k]=v;localStorage.setItem(RATE,JSON.stringify(taste));buildTable();
+ }));
+}
+function buildChart(){
+ const top=D.rows.slice(0,6);const COLORS=['#1e6fb8','#0b8a5f','#c0392b','#c77800','#7b4bc4','#00838f'];
+ const ds=top.map((r,i)=>({label:r.brand+' '+r.fat+' '+r.weight,data:D.years.map(y=>r.dyn[y]),borderColor:COLORS[i],backgroundColor:COLORS[i],tension:.3,spanGaps:true,pointRadius:3,borderWidth:2}));
+ try{new Chart($('dynChart'),{type:'line',data:{labels:D.years,datasets:ds},options:{responsive:true,maintainAspectRatio:false,
+   plugins:{title:{display:true,text:'Цена конкретных SKU сметаны по годам, ₽',font:{size:14,weight:'bold'},color:'#14202b',padding:{bottom:12}},legend:{position:'bottom',labels:{font:{size:11},boxWidth:12}},
+    tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y?c.parsed.y+' ₽':'нет')}}},
+   scales:{x:{title:{display:true,text:'Год'}},y:{title:{display:true,text:'Цена, ₽'}}}}});
+ }catch(e){$('dynChart').closest('.chart-box').innerHTML='<div style="padding:30px;text-align:center;color:#8a97a3">График откроется в браузере с интернетом.</div>';}
+}
+buildTable();try{buildChart();}catch(e){}
+</script></body></html>
