@@ -26,6 +26,9 @@ class Coverage:
     brand_hit: int = 0
     by_source: Counter = field(default_factory=Counter)
     unmatched: Counter = field(default_factory=Counter)
+    unmatched_money: Counter = field(default_factory=Counter)
+    matched_money: float = 0.0
+    excluded_money: float = 0.0
     unit_skus: dict = field(default_factory=dict)
     bulk_skus: dict = field(default_factory=dict)
 
@@ -37,6 +40,19 @@ class Coverage:
     def unit_items(self):
         """Штучные позиции с определённой фасовкой — база для словаря брендов."""
         return self.with_pack - self.weighted
+
+    @property
+    def unmatched_total(self):
+        return sum(self.unmatched_money.values())
+
+    @property
+    def money(self):
+        """Все деньги анализируемых позиций."""
+        return self.matched_money + self.unmatched_total
+
+    @property
+    def unmatched_share(self):
+        return self.unmatched_total / self.money if self.money else 0.0
 
 
 def coverage(run, segments=None):
@@ -55,11 +71,14 @@ def coverage(run, segments=None):
         cov.total += 1
         if item.excluded:
             cov.excluded += 1
+            cov.excluded_money += item.amount
             continue
         if item.group is None:
             cov.unmatched[item.name] += 1
+            cov.unmatched_money[item.name] += item.amount
             continue
         cov.matched += 1
+        cov.matched_money += item.amount
         if item.weighted:
             cov.weighted += 1
             cov.with_pack += 1
@@ -126,7 +145,54 @@ def brandless_prefixes(run, limit=20):
     return counter.most_common(limit)
 
 
+@dataclass
+class QueueRow:
+    name: str
+    purchases: int
+    amount: float
+
+
+def _rows(cov, names):
+    return [QueueRow(name=n, purchases=cov.unmatched[n],
+                     amount=cov.unmatched_money[n]) for n in names]
+
+
+def queue_by_money(cov, limit=15):
+    """Очередь А — непродуктовые категории. Сортировка по деньгам.
+
+    Цель — корректный контроль трат, поэтому мера рублёвая. Наверху окажутся
+    разовые дорогие покупки: гриль, шина, кухонная машина. Очередь по числу
+    покупок их не увидит никогда, а они и есть основная масса денег.
+    Порога по числу покупок здесь нет намеренно: разовая покупка — норма для
+    непродуктового, и именно её надо отнести в свою категорию.
+    """
+    names = sorted(cov.unmatched_money, key=lambda n: -cov.unmatched_money[n])
+    return _rows(cov, names[:limit])
+
+
+def queue_by_purchases(cov, min_observations, limit=15):
+    """Очередь Б — продуктовые группы. Сортировка по числу покупок.
+
+    Цель — покрытие для медиан, поэтому мера — наблюдения. Ниже порога
+    min_observations медиану всё равно не построить, так что дальше этой
+    границы разбирать нечего.
+
+    ВАЖНО: частота — это порядок разбора, а не правило отнесения. Регулярно
+    покупают и расходники: МАСЛО TAIF 5W40 куплено 9 раз. Очередь говорит,
+    что смотреть раньше, а не куда относить.
+    """
+    names = [n for n, c in cov.unmatched.items() if c >= min_observations]
+    names.sort(key=lambda n: (-cov.unmatched[n], -cov.unmatched_money[n]))
+    return _rows(cov, names[:limit])
+
+
+def queue_b_size(cov, min_observations):
+    """Сколько всего в очереди Б: названий и рублей."""
+    names = [n for n, c in cov.unmatched.items() if c >= min_observations]
+    return len(names), sum(cov.unmatched_money[n] for n in names)
+
+
 def unmatched_names(run, cov=None, limit=15):
-    """Очередь на пополнение categories.json."""
+    """Совместимость: очередь Б без порога."""
     cov = cov or coverage(run)
     return cov.unmatched.most_common(limit)

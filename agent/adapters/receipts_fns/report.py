@@ -7,7 +7,8 @@
 
 import statistics
 
-from .diagnostics import comparability, coverage
+from .diagnostics import (comparability, coverage, queue_b_size,
+                          queue_by_money, queue_by_purchases)
 
 WIDTH = 62
 TIER_ORDER = ("food_core", "food_candidate", "non_food", "unknown")
@@ -79,10 +80,29 @@ def render(run):
     p(f"    штучные: {cmp_['unit'][0]:4} из {cmp_['unit'][1]}")
     p(f"    весовые: {cmp_['bulk'][0]:4} из {cmp_['bulk'][1]}")
 
+    # Две очереди на пополнение, и они РАЗНЫЕ. Задача А — отнести непродуктовое
+    # в свои категории, мера рублёвая, цель — корректный контроль трат. Задача Б
+    # — пополнить продуктовые группы, мера в наблюдениях, цель — покрытие для
+    # медиан. Одна очередь по числу покупок не видит гриль за 17 тыс ₽, одна по
+    # деньгам не видит творожок за 39 ₽, купленный 12 раз.
     p("")
-    p("  Топ-15 нераспознанных названий — очередь на пополнение categories.json:")
-    for name, n in cov.unmatched.most_common(15):
-        p(f"    {n:4}  {name}")
+    p(f"  не отнесено к группе: {_money(f'{cov.unmatched_total:,.0f}')} ₽ "
+      f"({cov.unmatched_share:.1%} денег анализируемых позиций)")
+
+    p("")
+    p("  Очередь А — непродуктовые категории, топ-10 по деньгам:")
+    for row in queue_by_money(cov, 10):
+        p(f"    {_money(f'{row.amount:,.0f}'):>9} ₽  ×{row.purchases:<3} {row.name}")
+
+    min_obs = run.rules.min_observations
+    count, amount = queue_b_size(cov, min_obs)
+    p("")
+    p(f"  Очередь Б — продуктовые группы, топ-15 по числу покупок "
+      f"(порог {min_obs} набл.):")
+    for row in queue_by_purchases(cov, min_obs, 15):
+        p(f"    ×{row.purchases:<4}{_money(f'{row.amount:,.0f}'):>9} ₽  {row.name}")
+    p(f"    всего в очереди Б: {count} названий, "
+      f"{_money(f'{amount:,.0f}')} ₽")
 
     p("")
     p("=" * WIDTH)
