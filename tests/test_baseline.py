@@ -14,22 +14,18 @@ import unittest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import fixture  # noqa: E402
+
 from agent.config import Config, dataset_path                      # noqa: E402
 from agent.adapters.receipts_fns import Pipeline, load_receipts    # noqa: E402
 from agent.adapters.receipts_fns.report import render              # noqa: E402
-
-
-def build_run(include_candidates=False):
-    receipts = load_receipts(dataset_path(BASE))
-    return Pipeline(Config.load(BASE),
-                    include_candidates=include_candidates).run(receipts)
 
 
 class BaselineTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # НЕ называть это .run: затенит TestCase.run и unittest сломается
-        cls.result = build_run()
+        cls.result = fixture.run()
         cls.report = render(cls.result)
         with open(os.path.join(BASE, "docs", "BASELINE.txt"), encoding="utf-8") as f:
             cls.baseline = f.read().rstrip("\n")

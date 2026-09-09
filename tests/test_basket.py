@@ -7,6 +7,8 @@ import unittest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import fixture  # noqa: E402
+
 from agent.config import Config, dataset_path                       # noqa: E402
 from agent.settings import Settings                                 # noqa: E402
 from agent.adapters.receipts_fns import Pipeline, load_receipts     # noqa: E402
@@ -17,10 +19,9 @@ from agent.profile import build, for_average_txn, for_period        # noqa: E402
 class BasketTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        run = Pipeline(Config.load(BASE)).run(load_receipts(dataset_path(BASE)))
-        cls.history = to_history(run)
+        cls.history = fixture.history()
         cls.settings = Settings()
-        cls.profile = build(cls.history, cls.settings)
+        cls.profile = fixture.profile()
 
     def test_week_is_smaller_than_month(self):
         week = for_period(self.profile, "week", self.settings)

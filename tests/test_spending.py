@@ -11,6 +11,8 @@ import unittest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import fixture  # noqa: E402
+
 from agent.config import Config, dataset_path                       # noqa: E402
 from agent.adapters.receipts_fns import Pipeline, load_receipts     # noqa: E402
 from agent.adapters.receipts_fns.pipeline import to_history         # noqa: E402
@@ -20,8 +22,7 @@ from agent.profile import breakdown, growth, monthly_series, summary  # noqa: E4
 class SpendingTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        run = Pipeline(Config.load(BASE)).run(load_receipts(dataset_path(BASE)))
-        cls.history = to_history(run)
+        cls.history = fixture.history()
         cls.total = sum(o.amount for o in cls.history.outlays)
 
     def test_every_dimension_accounts_for_all_the_money(self):

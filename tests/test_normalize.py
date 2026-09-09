@@ -11,6 +11,8 @@ import unittest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import fixture  # noqa: E402
+
 from agent.config import Config, dataset_path                       # noqa: E402
 from agent.adapters.receipts_fns import Pipeline, load_receipts     # noqa: E402
 from agent.adapters.receipts_fns.rules import Rules                 # noqa: E402
@@ -81,9 +83,8 @@ class RunResidueTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        run = Pipeline(Config.load(BASE)).run(load_receipts(dataset_path(BASE)))
-        cls.result = run
-        cls.cov = coverage(run)
+        cls.result = fixture.run()
+        cls.cov = coverage(cls.result)
 
     def test_no_prefix_residue(self):
         self.assertEqual([i.name for i in self.result.items if RE_PREFIX.match(i.name)], [])

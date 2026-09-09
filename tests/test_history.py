@@ -13,6 +13,8 @@ import unittest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import fixture  # noqa: E402
+
 from agent.config import Config, dataset_path                       # noqa: E402
 from agent.settings import Settings                                 # noqa: E402
 from agent.adapters.receipts_fns import Pipeline, load_receipts     # noqa: E402
@@ -24,9 +26,9 @@ from agent.adapters.receipts_fns.diagnostics import coverage        # noqa: E402
 class OutlayTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.receipts = load_receipts(dataset_path(BASE))
-        cls.result = Pipeline(Config.load(BASE)).run(cls.receipts)
-        cls.history = to_history(cls.result)
+        cls.receipts = list(fixture.receipts())
+        cls.result = fixture.run()
+        cls.history = fixture.history()
 
     def test_every_item_becomes_an_outlay(self):
         """Ни один рубль не теряется по дороге."""
