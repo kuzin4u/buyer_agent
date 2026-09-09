@@ -33,6 +33,26 @@ class QueueTest(unittest.TestCase):
         self.assertAlmostEqual(self.cov.unmatched_total, 778_180, delta=1)
         self.assertLess(self.cov.unmatched_share, 0.25)
 
+    def test_one_denominator_for_every_share(self):
+        """Р-13: доли считаются от анализируемых, знаменатель один и печатается."""
+        self.assertAlmostEqual(self.cov.money, 3_646_135, delta=1)
+        self.assertAlmostEqual(
+            self.cov.money,
+            self.cov.matched_money + self.cov.nonfood_money + self.cov.unmatched_total,
+            places=6)
+        self.assertAlmostEqual(self.cov.unmatched_share,
+                               self.cov.unmatched_total / self.cov.money, places=9)
+        # исключённые в знаменатель не входят: они не могут получить группу
+        self.assertGreater(self.cov.excluded_money, 0)
+        self.assertNotAlmostEqual(self.cov.money,
+                                  self.cov.money + self.cov.excluded_money, places=0)
+
+    def test_report_prints_the_denominator(self):
+        from agent.adapters.receipts_fns.report import render
+        text = render(self.result)
+        self.assertIn("анализируется: 14688 позиций, 3 646 135 ₽", text)
+        self.assertIn("из 3 646 135 ₽ (21.3% от анализируемых)", text)
+
     def test_queue_a_is_ranked_by_money(self):
         rows = queue_by_money(self.cov, 20)
         amounts = [r.amount for r in rows]
