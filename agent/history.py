@@ -53,12 +53,43 @@ class Event:
         return self.ts[:4]
 
 
+@dataclass(frozen=True)
+class Outlay:
+    """Потраченные деньги с адресом: когда, где, на что.
+
+    Отличается от Event охватом. Event — то, у чего есть сопоставимая цена, и
+    он нужен для ценового анализа. Outlay — КАЖДЫЙ рубль, включая то, что в
+    ценовой анализ не попало: нераспознанные позиции, непродуктовые площадки,
+    сделки без опознанного контрагента. Контроль трат строится по Outlay,
+    иначе он перестаёт быть контролем трат.
+
+    txn группирует расходы одной сделки — без него не посчитать средний чек.
+    """
+
+    txn: str
+    ts: str
+    amount: float
+    venue: str = None
+    segment: str = None
+    group: str = None
+    dept: str = None
+
+    @property
+    def year(self):
+        return self.ts[:4]
+
+    @property
+    def month(self):
+        return self.ts[:7]
+
+
 @dataclass
 class History:
     """История одного принципала. Никогда не смешивает двух (SPEC §8.10)."""
 
     principal: str
     events: list = field(default_factory=list)
+    outlays: list = field(default_factory=list)
     source: str = ""
 
     def __len__(self):
@@ -66,3 +97,11 @@ class History:
 
     def groups(self):
         return {e.key.group for e in self.events}
+
+    def span(self):
+        """(первая дата, последняя) по всему, что известно."""
+        stamps = [o.ts for o in self.outlays] or [e.ts for e in self.events]
+        return (min(stamps), max(stamps)) if stamps else (None, None)
+
+    def total_spent(self):
+        return sum(o.amount for o in self.outlays)

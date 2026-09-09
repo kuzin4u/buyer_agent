@@ -39,10 +39,19 @@ class Coverage:
         return self.with_pack - self.weighted
 
 
-def coverage(run):
-    """Единственный проход по позициям; всё остальное считается из результата."""
+def coverage(run, segments=None):
+    """Покрытие по позициям продуктового ядра.
+
+    По умолчанию считается по тем ярусам, что включены в прогон, и НЕ включает
+    разобранные безымянные чеки: они участвуют в контроле трат и в динамике цен
+    по SKU, но контрольные цифры ТЗ (839 чеков, 75,6%, 58,6%) построены на
+    продуктовом ядре, и смешивать одно с другим нельзя.
+    """
+    segments = segments or run.food_tiers
     cov = Coverage()
     for item in run.items:
+        if item.segment not in segments:
+            continue
         cov.total += 1
         if item.excluded:
             cov.excluded += 1
