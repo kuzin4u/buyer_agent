@@ -9,5 +9,7 @@ profile получает History, а не чеки, и слов «чек», «SK
 
 from ..history import History
 from .build import Profile, GroupStat, VenueStat, build
+from .basket import Basket, BasketLine, for_period, for_average_txn
 
-__all__ = ["History", "Profile", "GroupStat", "VenueStat", "build"]
+__all__ = ["History", "Profile", "GroupStat", "VenueStat", "build",
+           "Basket", "BasketLine", "for_period", "for_average_txn"]

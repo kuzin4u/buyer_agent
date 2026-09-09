@@ -53,6 +53,8 @@ class GroupStat:
     median_gap_days: float  # типичный интервал; None, если покупка была одна
     typical_key: object     # самый частый ключ внутри группы
     share: float            # доля в тратах
+    median_amount: float    # типичная сумма на группу в одной сделке
+    typical_unit_price: float  # медиана цены типичного ключа, ₽ за базовую единицу
     dept: str = None
 
 
@@ -109,6 +111,7 @@ def build(history, settings=None, segments=None):
     by_group_txns = defaultdict(set)
     by_group_days = defaultdict(set)
     amounts = defaultdict(float)
+    per_txn = defaultdict(lambda: defaultdict(float))
     purchases = Counter()
     depts = {}
     for o in food:
@@ -117,19 +120,24 @@ def build(history, settings=None, segments=None):
         by_group_txns[o.group].add(o.txn)
         by_group_days[o.group].add(o.ts[:10])
         amounts[o.group] += o.amount
+        per_txn[o.group][o.txn] += o.amount
         purchases[o.group] += 1
         if o.dept:
             depts[o.group] = o.dept
 
     keys = defaultdict(Counter)
+    prices = defaultdict(list)
     for e in history.events:
         keys[e.key.group][e.key] += 1
+        prices[e.key].append(e.unit_price)
 
     groups = {}
     for group, txns in by_group_txns.items():
         days = sorted(by_group_days[group])
         gaps = [(_day(b) - _day(a)).days for a, b in zip(days, days[1:])]
         typical = keys[group].most_common(1)
+        typical_key = typical[0][0] if typical else None
+        key_prices = prices.get(typical_key) or []
         groups[group] = GroupStat(
             group=group,
             txns=len(txns),
@@ -139,8 +147,10 @@ def build(history, settings=None, segments=None):
             last_ts=days[-1],
             per_month=len(txns) / months,
             median_gap_days=statistics.median(gaps) if gaps else None,
-            typical_key=typical[0][0] if typical else None,
+            typical_key=typical_key,
             share=amounts[group] / spend if spend else 0.0,
+            median_amount=statistics.median(per_txn[group].values()),
+            typical_unit_price=statistics.median(key_prices) if key_prices else None,
             dept=depts.get(group),
         )
 
