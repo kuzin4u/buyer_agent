@@ -21,6 +21,8 @@ class Coverage:
     total: int = 0
     excluded: int = 0
     matched: int = 0
+    nonfood: int = 0
+    nonfood_money: float = 0.0
     weighted: int = 0
     with_pack: int = 0
     brand_hit: int = 0
@@ -37,6 +39,11 @@ class Coverage:
         return self.total - self.excluded
 
     @property
+    def matched_all(self):
+        """Отнесено к любой товарной группе — определение контрольной цифры ТЗ."""
+        return self.matched + self.nonfood
+
+    @property
     def unit_items(self):
         """Штучные позиции с определённой фасовкой — база для словаря брендов."""
         return self.with_pack - self.weighted
@@ -48,7 +55,7 @@ class Coverage:
     @property
     def money(self):
         """Все деньги анализируемых позиций."""
-        return self.matched_money + self.unmatched_total
+        return self.matched_money + self.nonfood_money + self.unmatched_total
 
     @property
     def unmatched_share(self):
@@ -77,8 +84,17 @@ def coverage(run, segments=None):
             cov.unmatched[item.name] += 1
             cov.unmatched_money[item.name] += item.amount
             continue
-        cov.matched += 1
-        cov.matched_money += item.amount
+        # Продуктовое и непродуктовое считаются РАЗДЕЛЬНО (DECISIONS Р-11):
+        # иначе непродуктовые категории задирают «покрытие групп» и прячут
+        # ровно ту дыру, ради которой это покрытие меряется. Но общий итог
+        # сохраняется: контрольные 75,6% ТЗ считались по ВСЕМ группам, включая
+        # хозтовары и автотовары, и сопоставимость с ними рвать нельзя.
+        if item.food_group:
+            cov.matched += 1
+            cov.matched_money += item.amount
+        else:
+            cov.nonfood += 1
+            cov.nonfood_money += item.amount
         if item.weighted:
             cov.weighted += 1
             cov.with_pack += 1

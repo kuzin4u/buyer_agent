@@ -47,6 +47,10 @@ class OutlayTest(unittest.TestCase):
         self.assertIn("non_food", segments)
         self.assertIn("unknown", segments)
 
+    def test_grocery_share_counts_only_food_groups(self):
+        """§7: чек из моторного масла и работ с автомобилем — не продуктовый."""
+        self.assertEqual(self.result.unknown_food_count, 146)
+
     def test_resolved_unknown_receipts_are_labelled(self):
         """Прошедшие разбор по составу получают магазин «Не определён» (§7)."""
         resolved = [i for i in self.result.items if i.segment == UNKNOWN_FOOD]
@@ -57,8 +61,10 @@ class OutlayTest(unittest.TestCase):
         """Разобранные безымянные не должны сдвинуть контрольные цифры ТЗ."""
         cov = coverage(self.result)
         self.assertEqual(cov.total, 15546)
-        self.assertEqual(cov.matched, 11109)
-        self.assertEqual(cov.with_pack, 8604)
+        self.assertEqual(cov.matched_all, 11637)
+        self.assertEqual(cov.matched, 10703)     # только продуктовые группы
+        self.assertEqual(cov.nonfood, 934)
+        self.assertEqual(cov.with_pack, 8669)
 
     def test_history_carries_both_streams(self):
         self.assertTrue(self.history.events)

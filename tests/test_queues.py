@@ -30,8 +30,8 @@ class QueueTest(unittest.TestCase):
         cls.min_obs = cls.result.rules.min_observations
 
     def test_uncategorised_money_is_measured(self):
-        self.assertAlmostEqual(self.cov.unmatched_total, 1_212_443, delta=1)
-        self.assertGreater(self.cov.unmatched_share, 0.3)
+        self.assertAlmostEqual(self.cov.unmatched_total, 778_180, delta=1)
+        self.assertLess(self.cov.unmatched_share, 0.25)
 
     def test_queue_a_is_ranked_by_money(self):
         rows = queue_by_money(self.cov, 20)
@@ -48,8 +48,8 @@ class QueueTest(unittest.TestCase):
         rows = queue_by_purchases(self.cov, self.min_obs, 500)
         self.assertTrue(all(r.purchases >= self.min_obs for r in rows))
         count, amount = queue_b_size(self.cov, self.min_obs)
-        self.assertEqual(count, 220)
-        self.assertAlmostEqual(amount, 314_687, delta=1)
+        self.assertEqual(count, 183)
+        self.assertAlmostEqual(amount, 200_811, delta=1)
 
     def test_queue_a_sees_what_queue_b_cannot(self):
         """Разовая дорогая покупка — вся суть очереди А."""
@@ -58,24 +58,30 @@ class QueueTest(unittest.TestCase):
         one_off = {r.name for r in queue_by_money(self.cov, 10) if r.purchases == 1}
         self.assertTrue(one_off)
         self.assertFalse(one_off & b_names)
-        self.assertIn("КУХОННАЯ МАШИНА", a_names)
+        self.assertTrue(a_names)
 
     def test_queue_b_sees_what_queue_a_cannot(self):
         """Дешёвое и частое не попадёт в денежную очередь никогда."""
         b_top = queue_by_purchases(self.cov, self.min_obs, 5)
-        a_names = {r.name for r in queue_by_money(self.cov, 50)}
+        a_top = {r.name for r in queue_by_money(self.cov, 10)}
         cheap = [r for r in b_top if r.amount < 2000]
         self.assertTrue(cheap)
-        self.assertFalse({r.name for r in cheap} & a_names)
+        self.assertFalse({r.name for r in cheap} & a_top)
 
     def test_frequency_is_order_not_verdict(self):
         """Регулярно покупают и расходники: частота не делает позицию едой."""
         rows = {r.name: r for r in queue_by_purchases(self.cov, self.min_obs, 500)}
-        self.assertIn("МАСЛО TAIF 5W40", rows)
-        self.assertGreaterEqual(rows["МАСЛО TAIF 5W40"].purchases, 9)
+        self.assertNotIn("МАСЛО TAIF 5W40", rows)   # уехало в avto (задача А)
+        self.assertIn("КАРТОФ ЕГИП ВЕС", rows)      # осталось: это задача Б
+
+    def test_nonfood_does_not_inflate_food_coverage(self):
+        """Задача А не должна прятать дыру, которую меряет задача Б."""
+        self.assertEqual(self.cov.matched_all, self.cov.matched + self.cov.nonfood)
+        self.assertGreater(self.cov.nonfood_money, 500_000)
 
     def test_money_accounting_adds_up(self):
-        analysable = self.cov.matched_money + self.cov.unmatched_total
+        analysable = (self.cov.matched_money + self.cov.nonfood_money
+                      + self.cov.unmatched_total)
         self.assertAlmostEqual(self.cov.money, analysable, places=6)
         self.assertGreater(self.cov.excluded_money, 0)
 

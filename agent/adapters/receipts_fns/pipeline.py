@@ -43,6 +43,7 @@ class NormalizedItem:
     excluded: bool = False
     group: str = None
     dept: str = None
+    food_group: bool = True
     weighted_reason: str = None
     unit: str = None
     pack: float = None
@@ -144,8 +145,12 @@ class Pipeline:
             if tier != "unknown":
                 continue
             total = sum(i.total for i in r.items) or 1
-            food = sum(i.total for i in r.items
-                       if N.classify_item(rules, N.fold(rules, N.clean(rules, i.name))))
+            # Доля ПРОДУКТОВЫХ денег: непродуктовые группы сюда не идут, иначе
+            # чек из хозтоваров пройдёт как продуктовый (SPEC §7).
+            food = sum(
+                i.total for i in r.items
+                for g in [N.classify_item(rules, N.fold(rules, N.clean(rules, i.name)))]
+                if g is not None and g.get("food", True))
             if food / total >= thr:
                 out.unknown_food_count += 1
                 out.unknown_food_sum += r.total
@@ -202,6 +207,7 @@ class Pipeline:
             return item
         item.group = group["id"]
         item.dept = group.get("dept")
+        item.food_group = group.get("food", True)
 
         # весовость — ДО извлечения фасовки (docs/DECISIONS.md Р-3)
         item.weighted_reason = N.weighted_reason(rules, match, fractional)

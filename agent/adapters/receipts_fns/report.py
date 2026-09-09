@@ -63,8 +63,11 @@ def render(run):
     p(f"  позиций в продуктовых чеках: {cov.total}")
     p(f"  исключено как упаковка/сервис: {cov.excluded} "
       f"({cov.excluded / cov.total:.1%})")
-    p(f"  отнесено к товарной группе: {cov.matched} "
-      f"({cov.matched / cov.analysable:.1%} от анализируемых)")
+    p(f"  отнесено к товарной группе: {cov.matched_all} "
+      f"({cov.matched_all / cov.analysable:.1%} от анализируемых)")
+    p(f"     продуктовых:   {cov.matched:6} ({cov.matched / cov.analysable:.1%})")
+    p(f"     непродуктовых: {cov.nonfood:6} ({cov.nonfood / cov.analysable:.1%}), "
+      f"{_money(f'{cov.nonfood_money:,.0f}')} ₽")
     p(f"  из них весовых (цена уже ₽/кг): {cov.weighted}")
     p(f"  фасовка или вес определены: {cov.with_pack} "
       f"({cov.with_pack / cov.analysable:.1%} от анализируемых)")

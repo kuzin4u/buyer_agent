@@ -43,7 +43,7 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(n, 839)
         self.assertEqual(round(s), 3693733)
         self.assertEqual(self.result.receipts_count, 1744)
-        self.assertEqual(self.result.unknown_food_count, 158)
+        self.assertEqual(self.result.unknown_food_count, 146)
 
 
 if __name__ == "__main__":
