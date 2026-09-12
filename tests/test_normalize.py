@@ -283,6 +283,85 @@ class PackGroupsFromConfigTest(unittest.TestCase):
         self.assertIsNone(N.extract_pack(self.rules, "ЧАЙ ГРИНФИЛД 0,45", "chay_kofe"))
 
 
+class WordBoundaryTest(unittest.TestCase):
+    """Правило не должно срабатывать внутри чужого слова (DECISIONS.md Р-20).
+
+    Это не единичная опечатка, а семейство: сокращение из двух-четырёх букв
+    почти всегда встречается внутри другого слова, и тогда позиция уезжает в
+    чужую группу молча — отчёт остаётся правдоподобным.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = Rules(Config.load(BASE))
+
+    def group(self, name):
+        g = N.classify_item(self.rules, N.fold(self.rules, name))
+        return g and g["id"]
+
+    def test_substring_does_not_decide_the_group(self):
+        for name, expect in [
+            # ВОД внутри ЗАВОД — рулька уезжала в воду, 15 покупок
+            ("РУЛЬКА МЯСНОВЪ БЕЗ КОСТИ МОЛОДОЙ БЫЧОК ЗАВОД МЯСНОВЪ", "govyadina"),
+            ("МЯКОТЬ МЯСНОВЪ 1С МОЛОДОЙ БЫЧОК ЗАВОД МЯСНОВЪ", "govyadina"),
+            ("ПЯТНОВЫВОД ML 100МЛ", "bytovoe"),
+            ("ВОДА БОРЖОМИ 1,25Л", "voda"),
+            # ТБ внутри ОТБ — чернослив уезжал в бытовую химию
+            ("ЧЕРН Б/К ОТБ 500Г", "sukhofrukty"),
+            ("КАРТОФЕЛЬ ОТБ 5 КГ", "ovoshchi"),
+            # МОЛ внутри ПОМОЛ и ПЕТМОЛ
+            ("СОЛЬ ПОМОЛ №1 1КГ", "sahar_sol"),
+            ("СОЛЬ ПИЩ.МОЛ.КАМЕН.ПОМОЛ №1 1КГ", "sahar_sol"),
+            ("СЛИВКИ ПЕТМОЛ 33%", "slivki"),
+            ("МОЛ ЭКОНИВА 2,5% 1Л", "moloko"),
+            # КОЛА внутри РУКОЛА и ШКОЛА
+            ("РУКОЛА ДЕЛИКАТЕСНАЯ", "ovoshchi"),
+            ("ШКОЛА ГАСТРОНОМА", None),
+            ("КОКА-КОЛА 2Л", "sok"),
+            # РИС внутри ПАРИС
+            ("РЕЗ БО ПАРИС 442", None),
+            ("РИС МИСТРАЛЬ ИНД 450", "krupa"),
+        ]:
+            self.assertEqual(self.group(name), expect, name)
+
+
+class BezKostochkiTest(unittest.TestCase):
+    """«Б/К» — устойчивое кассовое сокращение, сужающее смысл (Р-20).
+
+    Косточка или кость бывает у мяса, рыбы, оливки и косточкового плода. У
+    черники и смородины её нет, поэтому «ЧЕРН Б/К» — это чернослив, а не
+    ягода: подтверждается соседями в тех же чеках («ЧЕРНОСЛИВ Б/К 500») и
+    ценой (медиана 243 ₽ против 230 и 247 у полных написаний).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = Rules(Config.load(BASE))
+
+    def group(self, name):
+        g = N.classify_item(self.rules, N.fold(self.rules, name))
+        return g and g["id"]
+
+    def test_chern_bk_is_prunes(self):
+        self.assertEqual(self.group("ЧЕРН Б/К ЭКОН 500Г"), "sukhofrukty")
+        self.assertEqual(self.group("ЧЕРН Б/К ОТБ 500Г"), "sukhofrukty")
+        self.assertEqual(self.group("ЧЕРНОСЛИВ Б/К 500"), "sukhofrukty")
+
+    def test_bare_chern_stays_a_berry(self):
+        """Правило висит на сочетании с Б/К: голое ЧЕРН заберёт чернику."""
+        self.assertEqual(self.group("ЧЕРНИКА С/М 300Г"), "frukty")
+        self.assertEqual(self.group("ЧЕРНАЯ СМОРОДИНА ВЕС"), "frukty")
+
+    def test_bk_goods_all_have_bones(self):
+        """Ни одна позиция с Б/К не может быть водой или бытовой химией."""
+        for name in ["СУДАК ФИЛЕ Б/К100-20", "САЗАН Б/К ФИЛЕ ОХЛ",
+                     "ВКУСАРТ ПАНГАСИУС ФИЛЕ Б/К 600Г", "РЕСКА ФИЛЕ ОХЛ Б/КОЖ"]:
+            self.assertEqual(self.group(name), "ryba", name)
+        self.assertEqual(self.group("К.Ц ОЛИВКИ Б/К Ж/Б 300Г"), "konservy")
+        self.assertEqual(self.group("ТЕНД.ШЕЙКА СВИНАЯ Б/К ОХЛ.1КГ"), "svinina")
+        self.assertEqual(self.group("ВИШНЯ Б/КОСТОЧ. ВЕС"), "frukty")
+
+
 class ExclusionCriterionTest(unittest.TestCase):
     """Исключается не «не еда», а не покупаемое благо (DECISIONS.md Р-19).
 

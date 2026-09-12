@@ -61,10 +61,10 @@ class OutlayTest(unittest.TestCase):
         """Разобранные безымянные не должны сдвинуть контрольные цифры ТЗ."""
         cov = coverage(self.result)
         self.assertEqual(cov.total, 15546)
-        self.assertEqual(cov.matched_all, 13068)
-        self.assertEqual(cov.matched, 11697)     # только продуктовые группы
-        self.assertEqual(cov.nonfood, 1371)
-        self.assertEqual(cov.with_pack, 9569)
+        self.assertEqual(cov.matched_all, 13086)
+        self.assertEqual(cov.matched, 11709)     # только продуктовые группы
+        self.assertEqual(cov.nonfood, 1377)
+        self.assertEqual(cov.with_pack, 9583)
 
     def test_history_carries_both_streams(self):
         self.assertTrue(self.history.events)
