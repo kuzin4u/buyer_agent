@@ -283,6 +283,61 @@ class PackGroupsFromConfigTest(unittest.TestCase):
         self.assertIsNone(N.extract_pack(self.rules, "ЧАЙ ГРИНФИЛД 0,45", "chay_kofe"))
 
 
+class ExclusionCriterionTest(unittest.TestCase):
+    """Исключается не «не еда», а не покупаемое благо (DECISIONS.md Р-19).
+
+    Тара, сервис и расчётная строка выходят из анализа; всё, что человек купил
+    и потребил, остаётся товаром и получает непродуктовую группу.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = Rules(Config.load(BASE))
+
+    def excluded(self, name):
+        return N.is_excluded(self.rules, N.fold(self.rules, name))
+
+    def group(self, name):
+        g = N.classify_item(self.rules, N.fold(self.rules, name))
+        return g and g["id"]
+
+    def test_not_a_good_is_excluded(self):
+        for name in ["ПАКЕТ-МАЙКА ГЛОБУС", "ПАКЕТ ПОКУПАТЕЛЬСКИЙ МАЙКА",
+                     "ПАКЕТ ЛЕНТА СРЕДНИЙ МАЙКА 12КГ", "ПОДАРОЧНЫЙ СЕРТИФИКАТ МЯСНОВЪ №15",
+                     "ДОСТАВКА ГЛОБУС", "БОНУСНАЯ КАРТА"]:
+            self.assertTrue(self.excluded(name), name)
+
+    def test_a_good_stays_a_good_even_when_it_is_not_food(self):
+        for name, group in [("ТРЯПКА ГЛОБУС", "bytovoe"),
+                            ("ТРЯПКА 50Х50СМ", "bytovoe"),
+                            ("САЛФЕТКА ГЛОБУС", "bytovoe"),
+                            ("САЛФ ВЛ ГЛ МИН 72ШТ", "bytovoe"),
+                            ("ВЛАЖН.САЛФ.АУРА 120", "bytovoe")]:
+            self.assertFalse(self.excluded(name), name)
+            self.assertEqual(self.group(name), group, name)
+
+    def test_mayka_needs_the_word_paket(self):
+        """Фасон пакета и предмет одежды пишутся одним словом.
+
+        До Р-19 правило ловило по слову, и «МАЙКА Д/ДЕВОЧКИ» за 300 ₽ молча
+        уходила из анализа как тара. Все 26 названий пакетов-маек в выборке
+        содержат слово ПАКЕТ, поэтому сочетание ничего не теряет.
+        """
+        self.assertTrue(self.excluded("ПАКЕТ-МАЙКА 38Х59"))
+        self.assertFalse(self.excluded("МАЙКА Д/ДЕВОЧКИ"))
+        self.assertEqual(self.group("МАЙКА Д/ДЕВОЧКИ"), "odezhda")
+        self.assertEqual(self.group("МАЙКА Д/ДЕВ БЕЛ"), "odezhda")
+
+    def test_rum_is_a_word_not_a_prefix(self):
+        """Побочный улов Р-19: «РОМ» встречается внутри чужих названий."""
+        self.assertEqual(self.group("РОМ БАРСЕЛО 0,7Л"), "krepkiy")
+        self.assertEqual(self.group("САЛФ.ВЛ.РОМ.ЛУГ 72ШТ"), "bytovoe")
+        self.assertEqual(self.group("Т/Б РОМ.ЛУГ.Б.12Р.2С"), "bytovoe")
+        # шоколад с ромом и изюмом перестал быть крепким алкоголем; куда он
+        # попадёт дальше — вопрос правила ИЗЮМ, которое стоит выше сладостей
+        self.assertNotEqual(self.group("ШОК РИТ РОМ/ИЗЮМ100"), "krepkiy")
+
+
 class BrandRuleWidthTest(unittest.TestCase):
     """Правила брендов не должны хватать лишнее (DECISIONS.md Р-18).
 
