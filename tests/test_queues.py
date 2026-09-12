@@ -30,7 +30,7 @@ class QueueTest(unittest.TestCase):
         cls.min_obs = cls.result.rules.min_observations
 
     def test_uncategorised_money_is_measured(self):
-        self.assertAlmostEqual(self.cov.unmatched_total, 778_180, delta=1)
+        self.assertAlmostEqual(self.cov.unmatched_total, 478_472, delta=1)
         self.assertLess(self.cov.unmatched_share, 0.25)
 
     def test_one_denominator_for_every_share(self):
@@ -51,7 +51,7 @@ class QueueTest(unittest.TestCase):
         from agent.adapters.receipts_fns.report import render
         text = render(self.result)
         self.assertIn("анализируется: 14688 позиций, 3 646 135 ₽", text)
-        self.assertIn("из 3 646 135 ₽ (21.3% от анализируемых)", text)
+        self.assertIn("из 3 646 135 ₽ (13.1% от анализируемых)", text)
 
     def test_queue_a_is_ranked_by_money(self):
         rows = queue_by_money(self.cov, 20)
@@ -68,8 +68,8 @@ class QueueTest(unittest.TestCase):
         rows = queue_by_purchases(self.cov, self.min_obs, 500)
         self.assertTrue(all(r.purchases >= self.min_obs for r in rows))
         count, amount = queue_b_size(self.cov, self.min_obs)
-        self.assertEqual(count, 183)
-        self.assertAlmostEqual(amount, 200_811, delta=1)
+        self.assertEqual(count, 4)
+        self.assertAlmostEqual(amount, 2_350, delta=1)
 
     def test_queue_a_sees_what_queue_b_cannot(self):
         """Разовая дорогая покупка — вся суть очереди А."""
@@ -89,10 +89,15 @@ class QueueTest(unittest.TestCase):
         self.assertFalse({r.name for r in cheap} & a_top)
 
     def test_frequency_is_order_not_verdict(self):
-        """Регулярно покупают и расходники: частота не делает позицию едой."""
+        """Регулярно покупают и расходники: частота не делает позицию едой.
+
+        «КАРТОФ ЕГИП ВЕС» стоял здесь примером оставшегося в очереди Б; в С3
+        он разобран и уехал в овощи. Пример заменён на живой остаток очереди.
+        """
         rows = {r.name: r for r in queue_by_purchases(self.cov, self.min_obs, 500)}
         self.assertNotIn("МАСЛО TAIF 5W40", rows)   # уехало в avto (задача А)
-        self.assertIn("КАРТОФ ЕГИП ВЕС", rows)      # осталось: это задача Б
+        self.assertNotIn("КАРТОФ ЕГИП ВЕС", rows)   # уехало в овощи (задача Б)
+        self.assertIn("САЛФ ВЛ ГЛ МИН 72ШТ", rows)  # осталось: спор об исключении
 
     def test_nonfood_does_not_inflate_food_coverage(self):
         """Задача А не должна прятать дыру, которую меряет задача Б."""

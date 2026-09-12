@@ -130,19 +130,25 @@ class SelfDeterminedAttributesTest(unittest.TestCase):
                         if i.group is None and not i.excluded]
 
     def test_weightedness_known_without_category(self):
-        """«КАРТОФ ЕГИП ВЕС» весовой, даже если категория не распозналась."""
+        """«КАРТОФ ЕГИП ВЕС» весовой, даже если категория не распозналась.
+
+        Порог здесь только «больше нуля»: сколько именно позиций осталось без
+        категории, зависит от полноты categories.json и падает с каждым
+        пополнением словаря (в С3 — с 308 до 100). Проверяется свойство, а не
+        объём выборки; что признак не теряется молча, ловят мутации из Р-14.
+        """
         weighted = [i for i in self.no_group if i.weighted]
-        self.assertGreater(len(weighted), 300)
+        self.assertGreater(len(weighted), 0)
         for item in weighted:
             self.assertIsNotNone(item.weighted_reason)
 
     def test_brand_known_without_category(self):
         from agent.adapters.receipts_fns.sku import UNKNOWN
         branded = [i for i in self.no_group if i.brand and i.brand != UNKNOWN]
-        self.assertGreater(len(branded), 100)
+        self.assertGreater(len(branded), 0)
 
     def test_fat_known_without_category(self):
-        self.assertGreater(len([i for i in self.no_group if i.fat]), 100)
+        self.assertGreater(len([i for i in self.no_group if i.fat]), 0)
 
     def test_fat_known_for_weighted_goods(self):
         """§5 объявляет неприменимыми бренд и штучную фасовку. Жирности там нет."""
@@ -275,6 +281,64 @@ class PackGroupsFromConfigTest(unittest.TestCase):
         self.assertEqual(N.extract_pack(self.rules, "ПИВО КЕРСАРИ СВ 0,45", "pivo"),
                          ("l", 0.45, "литраж без единицы"))
         self.assertIsNone(N.extract_pack(self.rules, "ЧАЙ ГРИНФИЛД 0,45", "chay_kofe"))
+
+
+class CategoryRuleWidthTest(unittest.TestCase):
+    """Правила категорий не должны хватать лишнее (DECISIONS.md Р-17).
+
+    Каждая пара здесь — реальное название из выборки, на котором правило,
+    написанное шире нужного, уводило позицию в чужую группу. Правила
+    применяются сверху вниз, первое совпадение выигрывает, поэтому расширение
+    любой альтернативы обязано ронять этот тест, а не тихо менять отчёт.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = Rules(Config.load(BASE))
+
+    def group(self, name):
+        g = N.classify_item(self.rules, N.fold(self.rules, name))
+        return g and g["id"]
+
+    def test_narrow_rules_do_not_overreach(self):
+        for name, expect in [
+            ("NEMOL.НАП.МИНД.РИС.ОСН.ДЕТ.1Л", "krupa"),     # МИНД. — не индейка
+            ("СОК ДОБРЫЙ ЯБЛ 1Л", "sok"),                   # ЯБЛ в соке
+            ("MR.RIC.КЕТЧ.ТОМ.POM.", "sousy"),              # ТОМ в кетчупе
+            ("ТВ СОРТ МУКА", "muka"),                       # ТВ — твёрдый сорт
+            ("САРДЕЛЬКИ ТЕЛЯЧЬИ 1КГ БРЕСТ", "kolbasa"),
+            ("САХАР КАРАМЕЛЬН 500Г", "sahar_sol"),
+            ("БРАУНИ САХАР ПРЕСС", "sahar_sol"),
+            ("СОУС ШОКОЛ HNZ 200Г", "sousy"),
+            ("БАТОНЧИК ШОК SNICKERS С СЕМЕЧКАМИ 81Г", "hleb"),
+            ("СУШ МАЛЫШКА ГОРЧ ВЕС", "vypechka"),           # сушки, не сухофрукт
+            ("ТАБЛ ПИЛЮЛЯ НА 7ДНЕЙ", None),                 # ПИЛЮЛЯ, не люля
+            ("SC НАКЛЕЙКА СНЕЖИНКИ ДЕКОР.", None),          # НАКЛЕЙКА, не клей
+            ("З/П ЛАКАЛУТ АЛ.МЯТА", "bytovoe"),             # зубная паста
+            ("ДЖЕМ МАХЕЕВЪ ЧЕРНОСМОРОДИНОВЫЙ 300Г", None),
+            ("КЛЕЙ-КАРАНДАШ 15ГР", "igrushki"),
+            ("БАРАНКИ ГОРЧИЧНЫЕ,ШТ", None),                 # не баранина
+            ("ВИСК РАГУ 7+ ЯГН 75Г", "zoo"),                # ягнёнок в корме
+            ("КАМЕНЬ Д/ПИЦЦЫ", "posuda"),
+            ("ВЕТЧИНА ИЗ ИНД 400Г", "kolbasa"),
+        ]:
+            self.assertEqual(self.group(name), expect, name)
+
+    def test_queue_b_names_are_now_classified(self):
+        """То, ради чего словарь и пополняли."""
+        for name, expect in [
+            ("КАРТОФ ЕГИП ВЕС", "ovoshchi"),
+            ("ФИЛЕ ИНД.БОЛЬШ.ВЕС", "ptitsa"),
+            ("КОЛБ.ДОКТОРСКАЯ ВЕС", "kolbasa"),
+            ("МАСЛО БР-Л.72,5%180Г", "maslo_sl"),
+            ("МАСЛО КАРОЛИНА 0,9Л", "maslo_rast"),
+            ("ПИЛЗНЕР УРКВ ЖБ 0,5Л", "pivo"),
+            ("ЖЕЛТОК ГРОВО ОХЛ 330", "yaytso"),
+            ("БАРАНЬИ МЯСНЫЕ КОСТИ", "baranina"),
+            ("ЛЕБО ИТАЛИАНО 1КГ", "chay_kofe"),
+            ("СОЛОД КРАСН400ГР", "muka"),
+        ]:
+            self.assertEqual(self.group(name), expect, name)
 
 
 class BulkKeyOnDataTest(unittest.TestCase):
