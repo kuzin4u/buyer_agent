@@ -224,7 +224,7 @@ class Pipeline:
         if item.weighted:
             item.unit = "kg"
             item.unit_price = raw_item.price      # у весовых цена уже ₽/кг
-            item.key = bulk_sku(item.group, match)
+            item.key = bulk_sku(item.group, N.bulk_key(rules, match))
             return item
 
         # Фасовка зависит от категории по существу: голое число читается как

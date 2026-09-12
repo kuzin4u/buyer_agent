@@ -63,6 +63,12 @@ class Rules:
         self.fold = str.maketrans(case.get("fold_for_matching", {}))
         self.excluded = re.compile(norm["excluded_items"]["match"])
         self.weighted = re.compile(norm["weighted_goods"]["match"])
+        # Хвост единицы измерения у весового названия: «ВЕС», «1КГ», «,КГ».
+        # Знание о товаре, поэтому список правил в конфиге, а не здесь.
+        key_name = norm["weighted_goods"]["key_name"]
+        self.bulk_key = tuple((r["name"], re.compile(r["match"]), r.get("replace", ""))
+                              for r in key_name["rules"])
+        self.bulk_key_trim = key_name.get("trim_chars", " ,")
         self.min_observations = norm["aggregation"]["min_observations"]
 
         self.shops = tuple((r, re.compile(r["match"])) for r in config.shops["rules"])

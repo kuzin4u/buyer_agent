@@ -52,6 +52,22 @@ def fold(rules, text):
     return text.translate(rules.fold)
 
 
+def bulk_key(rules, match):
+    """Сопоставительное название весовой позиции: без хвоста единицы измерения.
+
+    «БАНАНЫ», «БАНАНЫ 1КГ», «БАНАНЫ ВЕС 1КГ» — один товар, и ключ у него обязан
+    быть один, иначе цены между покупками не сравниваются (П-1 закрыт в С3).
+    Применяется ТОЛЬКО к весовой позиции и ТОЛЬКО к ключу: у штучного товара
+    «1КГ» — настоящая фасовка, а отображаемое название не меняется никогда
+    (normalization.json → weighted_goods.key_name).
+    """
+    s = match
+    for _name, rx, replacement in rules.bulk_key:
+        s = rx.sub(replacement, s)
+    s = s.strip(rules.bulk_key_trim)
+    return s or match
+
+
 def classify_shop(rules, raw):
     """→ (каноническое имя | None, ярус). Ярусов три плюс unknown (SPEC §7)."""
     if not raw or raw.strip() in ("", "не указан"):

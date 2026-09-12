@@ -180,5 +180,72 @@ class RunResidueTest(unittest.TestCase):
             self.assertNotIn("  ", key.parts[0])
 
 
+class BulkKeyTest(unittest.TestCase):
+    """Хвост единицы измерения у весового названия (DECISIONS.md Р-15, П-1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = Rules(Config.load(BASE))
+
+    def key(self, name):
+        return N.bulk_key(self.rules, name)
+
+    def test_rules_come_from_config_not_code(self):
+        names = [name for name, _rx, _repl in self.rules.bulk_key]
+        self.assertIn("хвост единицы измерения", names)
+
+    def test_six_spellings_of_bananas_give_one_key(self):
+        spellings = ["БАНАНЫ", "БАНАНЫ 1КГ", "БАНАНЫ ВЕС", "БАНАНЫ ВЕС 1КГ",
+                     "БАНАНЫ ВЕСОВЫЕ", "БАНАНЫ,КГ"]
+        self.assertEqual({self.key(n) for n in spellings}, {"БАНАНЫ"})
+
+    def test_trailing_forms(self):
+        for raw, expect in [
+            ("МОРКОВЬ ВЕСОВАЯ 1КГ", "МОРКОВЬ"),
+            ("АПЕЛЬСИНЫ ИМПОРТ ВЕС. 1КГ", "АПЕЛЬСИНЫ ИМПОРТ"),
+            ("КАБАЧКИ 1 КГ", "КАБАЧКИ"),
+            ("АПЕЛЬСИНЫ В СЕТКЕ ЦЕНА ЗА 1КГ", "АПЕЛЬСИНЫ В СЕТКЕ"),
+        ]:
+            self.assertEqual(self.key(raw), expect, raw)
+
+    def test_word_in_the_middle_is_not_a_tail(self):
+        """«ВЕС» внутри названия — часть названия, правило привязано к концу."""
+        for raw in ["ПЕЛЬМЕНИ МЯСНОВЪ ПО-ЦАРСКИ ВЕС. ЗАВОД МЯСНОВЪ",
+                    "ПАСТ.МОЛОКО ВЕС.МОЛ",
+                    "ДЕСЕРТ ДОБРЯНКА ФУНДУК ВЕС АККОНД"]:
+            self.assertEqual(self.key(raw), raw)
+
+    def test_real_pack_size_is_not_stripped(self):
+        """Единица измерения — только «1 КГ». «5КГ» — настоящая фасовка."""
+        self.assertEqual(self.key("КАРТОФЕЛЬ 5КГ"), "КАРТОФЕЛЬ 5КГ")
+
+    def test_suffix_inside_a_word_is_not_a_tail(self):
+        self.assertEqual(self.key("ПОДВЕС"), "ПОДВЕС")
+
+    def test_trailing_dot_is_kept(self):
+        """Сокращения — задача словаря, а не разбора единицы измерения."""
+        self.assertEqual(self.key("ЛОПАТКА СВИНАЯ ОХЛ."), "ЛОПАТКА СВИНАЯ ОХЛ.")
+
+    def test_name_is_never_emptied(self):
+        self.assertEqual(self.key("ВЕС 1КГ"), "ВЕС 1КГ")
+
+
+class BulkKeyOnDataTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.result = fixture.run()
+        cls.cov = coverage(cls.result)
+
+    def test_no_measurement_tail_left_in_keys(self):
+        tail = re.compile(r"(?:^|[\s,.])(?:1\s*)?(?:КГ|ВЕСОВ[А-Я]*|ВЕС)\.?\s*$")
+        left = [k.parts[0] for k in self.cov.bulk_skus if tail.search(k.parts[0])]
+        self.assertEqual(left, [])
+
+    def test_displayed_name_keeps_the_tail(self):
+        """Ключ сопоставительный, название — как в чеке (SPEC §11)."""
+        shown = [i.name for i in self.result.items if i.name.endswith(" ВЕС")]
+        self.assertTrue(shown, "в выборке есть названия, оканчивающиеся на ВЕС")
+
+
 if __name__ == "__main__":
     unittest.main()
