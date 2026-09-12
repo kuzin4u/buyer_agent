@@ -4,9 +4,11 @@
 правило проверяется здесь, рядом со слоем ввода, а не среди словарей.
 """
 
+import copy
 import os
 import sys
 import unittest
+from dataclasses import replace
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
@@ -228,6 +230,51 @@ class BulkKeyTest(unittest.TestCase):
 
     def test_name_is_never_emptied(self):
         self.assertEqual(self.key("ВЕС 1КГ"), "ВЕС 1КГ")
+
+
+class PackGroupsFromConfigTest(unittest.TestCase):
+    """Множества групп для правил фасовки живут в конфиге (DECISIONS.md Р-16, П-2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = Config.load(BASE)
+        cls.rules = Rules(cls.config)
+
+    def test_sets_match_the_config(self):
+        by_name = {r["name"]: r
+                   for r in self.config.normalization["pack_extraction"]["rules"]}
+        self.assertEqual(self.rules.drink_groups,
+                         frozenset(by_name["голый объём напитка"]["only_if_groups"]))
+        ml = by_name["голое число в конце названия"]["unit_by_group"]["мл"]
+        self.assertEqual({g for g, u in self.rules.bare_unit.items() if u == "l"},
+                         set(ml))
+
+    def test_group_ids_exist_in_categories(self):
+        known = {g["id"] for g in self.config.categories["groups"]}
+        self.assertLessEqual(self.rules.drink_groups, known)
+        self.assertLessEqual(set(self.rules.bare_unit), known)
+
+    def test_unknown_group_id_is_refused_loudly(self):
+        """Опечатка в id обязана падать, а не тихо выключать правило."""
+        norm = copy.deepcopy(self.config.normalization)
+        rule = next(r for r in norm["pack_extraction"]["rules"]
+                    if r["name"] == "голый объём напитка")
+        rule["only_if_groups"] = ["napitki_kotoryh_net"]
+        broken = replace(self.config, normalization=norm)
+        with self.assertRaises(ValueError) as e:
+            Rules(broken)
+        self.assertIn("napitki_kotoryh_net", str(e.exception))
+
+    def test_bare_number_reads_as_ml_for_liquids_and_g_otherwise(self):
+        self.assertEqual(N.extract_pack(self.rules, "МАЦУН ФМ 3,2 500", "moloko"),
+                         ("l", 0.5, "голое число (мл)"))
+        self.assertEqual(N.extract_pack(self.rules, "МАСЛО ВКУСН.82,5 400", "maslo_sl"),
+                         ("kg", 0.4, "голое число (г)"))
+
+    def test_bare_litres_only_for_drinks(self):
+        self.assertEqual(N.extract_pack(self.rules, "ПИВО КЕРСАРИ СВ 0,45", "pivo"),
+                         ("l", 0.45, "литраж без единицы"))
+        self.assertIsNone(N.extract_pack(self.rules, "ЧАЙ ГРИНФИЛД 0,45", "chay_kofe"))
 
 
 class BulkKeyOnDataTest(unittest.TestCase):

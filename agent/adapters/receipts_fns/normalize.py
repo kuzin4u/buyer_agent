@@ -8,7 +8,7 @@
 
 from collections import defaultdict
 
-from .rules import (DRINK_GROUPS, LIQUID_GROUPS, PACK_RULES, PIECES_RANGE,
+from .rules import (PACK_RULES, PIECES_RANGE,
                     RE_BARE_LITRES, RE_BARE_NUMBER, RE_CYRILLIC, RE_DIMS,
                     RE_FAT, RE_PIECES, RE_WORD)
 
@@ -157,7 +157,7 @@ def extract_pack(rules, name, group_id):
                 return None
             return (unit, value * factor, "явная единица")
 
-    if group_id in DRINK_GROUPS:
+    if group_id in rules.drink_groups:
         m = RE_BARE_LITRES.search(n)
         if m:
             return ("l", float(m.group(1).replace(",", ".")), "литраж без единицы")
@@ -172,7 +172,8 @@ def extract_pack(rules, name, group_id):
     m = RE_BARE_NUMBER.search(n)
     if m:
         value = float(m.group(1))
-        if group_id in LIQUID_GROUPS:
+        unit = rules.bare_unit.get(group_id, rules.bare_default)
+        if unit == "l":
             return ("l", value / 1000, "голое число (мл)")
         return ("kg", value / 1000, "голое число (г)")
 

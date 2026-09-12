@@ -7,15 +7,6 @@
 
 import re
 
-# Категории, у которых голое дробное число в конце названия — литраж
-# («ПИВО КЕРСАРИ СВ 0,45»). Только напитки: иначе правило ловит артикулы.
-DRINK_GROUPS = frozenset({"voda", "sok", "pivo", "vino", "krepkiy"})
-
-# Категории, у которых голое целое число в конце — миллилитры, а не граммы
-# («МАЦУН ФМ 3,2 500» — 500 мл).
-LIQUID_GROUPS = frozenset({"moloko", "kefir", "slivki", "voda", "sok",
-                           "pivo", "vino", "krepkiy", "maslo_rast"})
-
 RE_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 RE_WORD = re.compile(r"[A-Za-zА-Яа-яЁё]+")
 # «12Х20СМ» — габариты упаковки, а не фасовка
@@ -38,6 +29,9 @@ PACK_RULES = (
 )
 
 UNIT_LABEL = {"kg": "кг", "l": "л", "pcs": "шт"}
+
+#: обратное соответствие: так единица записана в конфиге
+UNIT_BY_LABEL = {v: k for k, v in UNIT_LABEL.items()} | {"мл": "l", "г": "kg"}
 
 
 class Rules:
@@ -71,10 +65,33 @@ class Rules:
         self.bulk_key_trim = key_name.get("trim_chars", " ,")
         self.min_observations = norm["aggregation"]["min_observations"]
 
+        # Множества групп, от которых зависит чтение голого числа, — в конфиге,
+        # а не здесь: это знание о товаре (П-2 закрыт решением Р-16). Ключ —
+        # id группы из categories.json, и он обязан там существовать; проверяет
+        # это _check_group_ids, потому что опечатка иначе молчит.
+        pack = norm["pack_extraction"]
+        by_name = {r["name"]: r for r in pack["rules"]}
+        self.drink_groups = frozenset(by_name["голый объём напитка"]["only_if_groups"])
+        units = by_name["голое число в конце названия"]["unit_by_group"]
+        self.bare_default = UNIT_BY_LABEL[units["_default"]]
+        self.bare_unit = {gid: UNIT_BY_LABEL[label]
+                          for label, ids in units.items()
+                          if not label.startswith("_") for gid in ids}
+
         self.shops = tuple((r, re.compile(r["match"])) for r in config.shops["rules"])
         self.food_share_threshold = config.shops["unknown_resolution"]["food_share_threshold"]
         self.categories = tuple((g, re.compile(g["match"])) for g in config.categories["groups"])
         self.brands = tuple((b, re.compile(b["match"])) for b in config.brands["brands"])
+
+        # Группа, на которую ссылается правило фасовки, обязана существовать:
+        # иначе правило молча перестаёт срабатывать при переименовании группы —
+        # ровно тот дефект, из-за которого множества и осели в коде (П-2).
+        unknown = (self.drink_groups | set(self.bare_unit)) \
+            - {g["id"] for g in config.categories["groups"]}
+        if unknown:
+            raise ValueError(
+                "normalization.json → pack_extraction ссылается на группы, "
+                "которых нет в categories.json: " + ", ".join(sorted(unknown)))
 
     @property
     def fingerprint(self):
