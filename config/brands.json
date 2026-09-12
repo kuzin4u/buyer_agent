@@ -22,10 +22,10 @@
     { "brand": "Valio",           "match": "VALIO|ВАЛИО",             "confidence": "confirmed" },
     { "brand": "President",       "match": "PRESIDENT|ПРЕЗИД",        "confidence": "confirmed" },
     { "brand": "Вологодская",     "match": "ВОЛОГ",                   "confidence": "confirmed" },
-    { "brand": "Свитлогорье",     "match": "СВИТ\\.|СВЕТ\\.",         "confidence": "probable", "note": "Префиксы 'СВИТ.' и 'СВЕТ.' встречаются на однотипном ассортименте (сырки, мороженое, молоко). Похоже на один бренд с двумя написаниями, но подтвердить обязательно — если это разные бренды, правило разведёт SKU неверно." },
+    { "brand": "Свитлогорье",     "match": "СВИТ\\.|СВЕТ\\.|СВИТЛ",         "confidence": "probable", "note": "Префиксы 'СВИТ.' и 'СВЕТ.' встречаются на однотипном ассортименте (сырки, мороженое, молоко). Похоже на один бренд с двумя написаниями, но подтвердить обязательно — если это разные бренды, правило разведёт SKU неверно." },
     { "brand": "КМЗ",            "match": "\\bКМЗ\\b",                "confidence": "confirmed" },
     { "brand": "Глобус",          "match": "ГЛОБ\\b|ГЛОБУС",          "confidence": "confirmed", "note": "собственная торговая марка сети" },
-    { "brand": "Мясновъ",         "match": "МЪ ФЕРМА|МЪ ПЕКА|\\bММХ\\b","confidence": "confirmed", "note": "собственная торговая марка сети" },
+    { "brand": "Мясновъ",         "match": "МЪ ФЕРМА|МЪ ПЕКА|\\bММХ\\b|МЯСНОВ","confidence": "confirmed", "note": "собственная торговая марка сети" },
     { "brand": "Агуша",           "match": "АГУША",                   "confidence": "confirmed" },
     { "brand": "Ламбер",          "match": "ЛАМБЕР",                  "confidence": "confirmed" },
     { "brand": "Ульянка",         "match": "УЛЬЯНКА",                 "confidence": "confirmed" },
@@ -35,7 +35,283 @@
     { "brand": "Оксское",         "match": "ОКСКОЕ",                  "confidence": "confirmed" },
     { "brand": "Боржоми",         "match": "БОРЖОМ",                  "confidence": "confirmed" },
     { "brand": "Ессентуки",       "match": "ЕСС\\.|ЕССЕНТУК",         "confidence": "confirmed" },
-    { "brand": "Донат",           "match": "ДОНАТ",                   "confidence": "confirmed" }
+    { "brand": "Донат",           "match": "ДОНАТ",                   "confidence": "confirmed" },
+    {
+        "brand": "Ritter Sport",
+        "match": "ШОК\\s?РИТ|R\\.SP\\.",
+        "confidence": "probable",
+        "note": "«ШОК РИТ 73 КАКАО 100» и «R.SP.ШОК.ЦЕЛ.ЛЕС.ОРЕХ» — 62 покупки, 13 названий, один ассортимент плиточного шоколада. Полного написания в выборке нет, подтвердить."
+    },
+    {
+        "brand": "DEL.",
+        "match": "DEL\\.",
+        "confidence": "probable",
+        "note": "74 покупки, 18 названий: вафли, конфеты, мармелад, десерты. Префикс устойчивый, но во что раскрывается — по выборке не восстановить, поэтому брендом записан сам префикс."
+    },
+    {
+        "brand": "Французская штучка",
+        "match": "ФРАНЦУЗСКАЯ ШТУЧКА|МУКА ФРАНЦУЗ",
+        "confidence": "confirmed",
+        "note": "Полное написание есть: «МУКА ФРАНЦУЗСКАЯ ШТУЧКА ЭКСТРА 2КГ». Правило намеренно не ловит «БАГЕТ ФРАНЦУЗСКИЙ» — это сорт хлеба, а не бренд."
+    },
+    {
+        "brand": "Террашё",
+        "match": "ТЕРРАШ",
+        "confidence": "probable",
+        "note": "«ВИНО ТЕРРАШ КР 0,75» — 59 покупок."
+    },
+    {
+        "brand": "Бейрал",
+        "match": "БЕЙРАЛ",
+        "confidence": "probable",
+        "note": "«ВИНО БЕЙРАЛ КР 0,75Л» — 58 покупок, 50 775 ₽."
+    },
+    {
+        "brand": "Полесье",
+        "match": "ПОЛЕСЬЕ",
+        "confidence": "confirmed",
+        "note": "соль"
+    },
+    {
+        "brand": "Арза",
+        "match": "\\bАРЗА",
+        "confidence": "confirmed",
+        "note": "минеральная вода. Граница слова обязательна: без неё правило ловит «НАРЗАН»"
+    },
+    {
+        "brand": "Нарзан",
+        "match": "НАРЗАН",
+        "confidence": "confirmed",
+        "note": "минеральная вода"
+    },
+    {
+        "brand": "Шишкин лес",
+        "match": "ШИШКИН ЛЕС|ШИШК\\.ЛЕС",
+        "confidence": "confirmed",
+        "note": "есть и полное, и сокращённое написание"
+    },
+    {
+        "brand": "Ваш выбор",
+        "match": "ВАШ ВЫБОР|ВАШ ВЫБ|В\\.ВЫБОР",
+        "confidence": "confirmed",
+        "note": "соль, яйцо"
+    },
+    {
+        "brand": "Раэ",
+        "match": "РАЭ",
+        "confidence": "confirmed",
+        "note": "сметана и творожная масса, 41 покупка"
+    },
+    {
+        "brand": "Papia",
+        "match": "ПАПИЯ|ПАПИА",
+        "confidence": "confirmed",
+        "note": "бумажные полотенца и туалетная бумага"
+    },
+    {
+        "brand": "Магнат",
+        "match": "МАГНАТ",
+        "confidence": "confirmed",
+        "note": "мороженое"
+    },
+    {
+        "brand": "Бело-нежная",
+        "match": "БЕЛО-НЕЖНАЯ",
+        "confidence": "confirmed",
+        "note": "мука"
+    },
+    {
+        "brand": "Селянка",
+        "match": "СЕЛЯН\\.",
+        "confidence": "probable",
+        "note": "«СЕЛЯН.МУКА ПШЕНИЧНАЯ В/С 2КГ» — мука и крупы. Точка в правиле обязательна: без неё ловятся «БИТОЧКИ ПО-СЕЛЯНСКИ»."
+    },
+    {
+        "brand": "Мистраль",
+        "match": "МИСТРАЛЬ",
+        "confidence": "confirmed",
+        "note": "крупы и сахар"
+    },
+    {
+        "brand": "Glanz",
+        "match": "GLANZ",
+        "confidence": "confirmed",
+        "note": "антифриз и тосол"
+    },
+    {
+        "brand": "Global Village",
+        "match": "GL\\.VIL",
+        "confidence": "confirmed",
+        "note": "собственная торговая марка"
+    },
+    {
+        "brand": "Лента",
+        "match": "(?<!КЛЕЙ )(?<!КЛ )\\bЛЕНТА\\b",
+        "confidence": "confirmed",
+        "note": "Собственная торговая марка сети. Запрет на «КЛЕЙ ЛЕНТА МАЛЯРНАЯ» и «КЛ ЛЕНТА 66М» обязателен: там ЛЕНТА — это сам товар."
+    },
+    {
+        "brand": "Керсари",
+        "match": "КЕРСАРИ",
+        "confidence": "confirmed",
+        "note": "пиво"
+    },
+    {
+        "brand": "Spaten",
+        "match": "ШПАТЕН",
+        "confidence": "confirmed",
+        "note": "пиво"
+    },
+    {
+        "brand": "Heinz",
+        "match": "HEINZ|HNZ",
+        "confidence": "confirmed",
+        "note": "кетчуп и соусы"
+    },
+    {
+        "brand": "Балтимор",
+        "match": "БАЛТИМОР",
+        "confidence": "confirmed",
+        "note": "кетчуп"
+    },
+    {
+        "brand": "Chappi",
+        "match": "CHAPPI|ЧАППИ",
+        "confidence": "confirmed",
+        "note": "корм для собак"
+    },
+    {
+        "brand": "Whiskas",
+        "match": "WHISKAS|ВИСК[\\s\\.]",
+        "confidence": "probable",
+        "note": "«ВИСК РАГУ 7+ ЯГН 75Г» — корм. Сокращение не путается с виски: тот пишется «ВИСКИ»."
+    },
+    {
+        "brand": "Nordic",
+        "match": "NORDIC|НОРДИК",
+        "confidence": "confirmed",
+        "note": "хлопья и хлебцы"
+    },
+    {
+        "brand": "Бабаевский",
+        "match": "БАБАЕВ|ШОК\\.БАБ",
+        "confidence": "confirmed",
+        "note": "шоколад"
+    },
+    {
+        "brand": "Lindt",
+        "match": "ЛИНДТ|LINDT",
+        "confidence": "confirmed",
+        "note": "шоколад"
+    },
+    {
+        "brand": "Schogetten",
+        "match": "ШОГЕТ",
+        "confidence": "confirmed",
+        "note": "шоколад"
+    },
+    {
+        "brand": "Zewa",
+        "match": "ЗЕВА|ZEWA",
+        "confidence": "confirmed",
+        "note": "бумажные полотенца"
+    },
+    {
+        "brand": "Paterra",
+        "match": "PATERRA",
+        "confidence": "confirmed",
+        "note": "хозтовары"
+    },
+    {
+        "brand": "Uniel",
+        "match": "UNIEL",
+        "confidence": "confirmed",
+        "note": "лампы"
+    },
+    {
+        "brand": "Camelion",
+        "match": "CAMELION",
+        "confidence": "confirmed",
+        "note": "лампы и батарейки"
+    },
+    {
+        "brand": "Mobil",
+        "match": "MOBIL",
+        "confidence": "confirmed",
+        "note": "моторное масло"
+    },
+    {
+        "brand": "Dolce Albero",
+        "match": "DOLCE ALBERO",
+        "confidence": "confirmed",
+        "note": "кофе"
+    },
+    {
+        "brand": "Martini",
+        "match": "МАРТИНИ|MARTINI",
+        "confidence": "confirmed",
+        "note": "игристое"
+    },
+    {
+        "brand": "Мондоро",
+        "match": "МОНДОРО",
+        "confidence": "confirmed",
+        "note": "игристое"
+    },
+    {
+        "brand": "Велком",
+        "match": "ВЕЛКОМ",
+        "confidence": "confirmed",
+        "note": "колбасы и бекон"
+    },
+    {
+        "brand": "Кудесница",
+        "match": "КУДЕСНИЦА",
+        "confidence": "confirmed",
+        "note": "мука"
+    },
+    {
+        "brand": "Чепфа",
+        "match": "ЧЕПФА",
+        "confidence": "confirmed",
+        "note": "яйцо"
+    },
+    {
+        "brand": "Еврозлак",
+        "match": "ЕВРОЗЛАК",
+        "confidence": "confirmed",
+        "note": "сахар"
+    },
+    {
+        "brand": "Авида",
+        "match": "АВИДА",
+        "confidence": "confirmed",
+        "note": "сметана"
+    },
+    {
+        "brand": "Чабан",
+        "match": "ЧАБАН",
+        "confidence": "confirmed",
+        "note": "сметана"
+    },
+    {
+        "brand": "Ростагро",
+        "match": "РОСТАГРО",
+        "confidence": "confirmed",
+        "note": "сырки и мацони"
+    },
+    {
+        "brand": "Мама Лама",
+        "match": "МАМАЛ|МАМА Л",
+        "confidence": "confirmed",
+        "note": "йогурты и творожки, есть полное написание «МАМА ЛАМ»"
+    },
+    {
+        "brand": "Грово",
+        "match": "\\bГРОВО",
+        "confidence": "confirmed",
+        "note": "яичный белок и желток. Граница слова обязательна: без неё правило ловит «BARBIE ИГРОВОЙ НАБОР»."
+    }
   ],
   "unresolved_policy": {
     "value": "—",

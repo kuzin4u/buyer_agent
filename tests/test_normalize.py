@@ -283,6 +283,47 @@ class PackGroupsFromConfigTest(unittest.TestCase):
         self.assertIsNone(N.extract_pack(self.rules, "ЧАЙ ГРИНФИЛД 0,45", "chay_kofe"))
 
 
+class BrandRuleWidthTest(unittest.TestCase):
+    """Правила брендов не должны хватать лишнее (DECISIONS.md Р-18).
+
+    Бренд входит в ключ штучного SKU, поэтому ошибочное правило не просто
+    красит позицию чужим именем — оно разводит один товар на два ключа или
+    сводит два разных в один.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = Rules(Config.load(BASE))
+
+    def brand(self, name):
+        return N.find_brand(self.rules, N.fold(self.rules, name))
+
+    def test_short_tokens_stay_inside_word_boundaries(self):
+        for name, expect in [
+            ("НАРЗАН ЭЛИТА 0,5Л", "Нарзан"),        # не «Арза» внутри НАРЗАН
+            ("АРЗА ВОДА МИН.ГАЗ.ПЭТ 0.5Л", "Арза"),
+            ("BARBIE ИГРОВОЙ НАБОР", "—"),          # не «Грово» внутри ИГРОВОЙ
+            ("БЕЛОК ГРОВО ОХЛ 330Г", "Грово"),
+            ("КЛЕЙ ЛЕНТА МАЛЯРНАЯ", "—"),           # лента — товар, не марка
+            ("КЛ ЛЕНТА 66М ВВ", "—"),
+            ("МАСЛО ЛЕНТА СЛИВОЧНОЕ ГОСТ В/С 82,5% 180", "Лента"),
+            ("БАГЕТ ФРАНЦУЗСКИЙ КЛАССИЧЕСКИЙ", "—"),
+            ("МУКА ФРАНЦУЗСКАЯ ШТУЧКА ЭКСТРА 2КГ", "Французская штучка"),
+            ("БИТОЧКИ ПО-СЕЛЯНСКИ", "—"),
+            ("СЕЛЯН.МУКА РИСОВАЯ 500Г", "Селянка"),
+            ("ВИСКИ ГРАНТС 0,5Л", "—"),             # не корм для кошек
+            ("ВИСК РАГУ 7+ ЯГН 75Г", "Whiskas"),
+        ]:
+            self.assertEqual(self.brand(name), expect, name)
+
+    def test_dictionary_is_read_from_config(self):
+        names = {b["brand"] for b, _rx in self.rules.brands}
+        self.assertIn("Ritter Sport", names)
+        self.assertIn("Мама Лама", names)
+        for b, _rx in self.rules.brands:
+            self.assertIn(b["confidence"], ("confirmed", "probable"), b["brand"])
+
+
 class CategoryRuleWidthTest(unittest.TestCase):
     """Правила категорий не должны хватать лишнее (DECISIONS.md Р-17).
 
