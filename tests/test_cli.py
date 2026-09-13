@@ -68,12 +68,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("Это 8.2", out)
         self.assertIn("budget 2 000", out)
 
-    def test_smart_basket_names_the_substituted_mark(self):
-        """CLI и веб обязаны отвечать одинаково: подстановка видна в обоих."""
+    def test_smart_basket_states_the_comparison_window(self):
+        """Сравниваются современники, и человек должен знать, за какой срок."""
         out = run("venues", "--basket", "week")
-        self.assertIn("другой", out)
-        self.assertIn("вместо", out)
-        self.assertIn("проверьте, за чем едете", out)
+        self.assertIn("мес", out)
 
     def test_smart_basket_counts_every_basket_line(self):
         out = run("venues", "--basket", "week")

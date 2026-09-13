@@ -10,7 +10,9 @@ import re
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 
+from ...history import DAYS_IN_MONTH, PRICE_WINDOW_MONTHS
 from .sku import UNKNOWN
 
 RE_TOKEN = re.compile(r"[А-ЯЁA-Z]{3,}")
@@ -244,21 +246,35 @@ class BrandCandidate:
 
 
 def brand_candidates(run, min_observations=None, basket_groups=(),
-                     month_groups=(), limit=20):
+                     month_groups=(), limit=20, window=PRICE_WINDOW_MONTHS,
+                     asof=None):
     """Очередь по ЭФФЕКТУ: что разметить, чтобы прибавился сравнимый товар.
 
     Порядок — сначала то, что стоит в недельной корзине пользователя, потом в
     месячной, потом по денежному разрыву между магазинами. Это и есть порядок
     полезности: строка недельной корзины — прямой ответ на главный вопрос,
     а разрыв в рублях — то, что этот ответ стоит.
+
+    **Окно наблюдений то же, что у сравнения (П-8).** Очередь обещает
+    проверяемое: «размеченное, это название даст сравнимый товар». Обещание
+    держится, только если наблюдения считаются по тому же правилу, по которому
+    потом строится сравнение. Пока правила были разные, очередь предлагала
+    разметить «ДСК ОГУРЦЫ» — 11 покупок в двух магазинах, но последняя восемь
+    лет назад, — и разметка не давала ничего.
     """
     min_observations = min_observations or run.rules.min_observations
+    asof = asof or max((item.dt for item in run.items), default="")
     by_name = defaultdict(list)
     for item in run.items:
         if item.weighted or item.pack_source is None or item.key is None:
             continue
         if item.brand != UNKNOWN:
             continue
+        if window is not None and item.dt and asof:
+            age = (date.fromisoformat(asof[:10])
+                   - date.fromisoformat(item.dt[:10])).days / DAYS_IN_MONTH
+            if age > window:
+                continue
         by_name[(item.name, item.key.group, item.key.unit)].append(item)
 
     rows = []

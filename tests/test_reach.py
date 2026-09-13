@@ -65,13 +65,14 @@ class ReachTest(unittest.TestCase):
         self.assertGreaterEqual(self.reach.ceiling_lines, self.reach.split_lines)
         self.assertLessEqual(self.reach.ceiling_lines, self.reach.basket_lines)
 
-    def test_substitution_narrowed_the_ceiling_gap(self):
-        """П-7 закрыт подстановкой регулярной марки (Р-25), но не до нуля.
+    def test_ceiling_is_not_below_the_answer(self):
+        """П-7: потолок по покрытию не может быть ниже достигнутого.
 
-        Часть зазора словарями не лечится вообще: товар, который берут от трёх
-        раз только в одном магазине, сравнивать не с чем.
+        Число подстановок здесь не проверяется: под окном сравнения (П-8) на этом
+        датасете их ноль, и это правильный ответ, а не регресс — единственная
+        годная регулярная марка не покупалась 31 месяц. Механизм подстановки
+        проверяется в `tests/test_venues.py` с раздвинутым окном.
         """
-        self.assertGreater(self.reach.substituted_lines, 0)
         self.assertGreaterEqual(self.reach.ceiling_lines, self.reach.split_lines)
 
     def test_basket_lines_count_every_line_of_the_basket(self):
@@ -113,18 +114,24 @@ class MeasuredReplenishmentTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.before = measure(fixture.run(), fixture.history(), fixture.profile())
+        cls.history = fixture.history()
+        cls.before = measure(fixture.run(), cls.history, fixture.profile())
 
     def test_brand_rule_from_the_effect_queue_adds_a_comparable_item(self):
         """Очередь по эффекту обещает проверяемое, и обещание держится.
 
         «ДСК ОГУРЦЫ КОРОТКОПЛОДНЫЕ 450Г» встречается 11 раз в двух магазинах по
-        отдельности, то есть наблюдений уже достаточно и они про один товар.
-        Значит разметка марки обязана дать сравнимый товар.
+        отдельности, то есть наблюдений достаточно и они про один товар.
+
+        Окно раздвинуто и здесь, и в очереди: под окном по умолчанию эти покупки
+        восьмилетней давности, и очередь их не предлагает (П-8). Проверяется
+        механизм — размеченное название становится сравнимым товаром, — а не
+        совпадение дат в датасете.
         """
-        after = measure(*run_with(brands=[{"brand": "ДСК", "match": "ДСК ОГУРЦЫ"}]))
-        self.assertGreater(after.comparable_shown, self.before.comparable_shown)
-        self.assertTrue(useful(self.before, after))
+        _run, history, _profile = run_with(
+            brands=[{"brand": "ДСК", "match": "ДСК ОГУРЦЫ"}])
+        self.assertGreater(len(compare(history, window=None)),
+                           len(compare(self.history, window=None)))
 
     def test_rule_that_unlocks_nothing_is_reported_as_such(self):
         """Правило про редкую марку — не вред, но и не прибавка, и это видно."""
@@ -221,8 +228,19 @@ class BrandQueueTest(unittest.TestCase):
         profile = fixture.profile()
         cls.week = {l.group for l in for_period(profile, "week").lines}
         cls.month = {l.group for l in for_period(profile, "month").lines}
+        # Окно раздвинуто: под окном по умолчанию очередь пуста (см. тест ниже),
+        # а проверять надо устройство очереди, а не состояние датасета.
         cls.candidates = D.brand_candidates(cls.pipeline, basket_groups=cls.week,
-                                            month_groups=cls.month)
+                                            month_groups=cls.month, window=None)
+
+    def test_queue_is_empty_inside_the_freshness_window(self):
+        """Работы, которая доказуемо прибавит сравнимый товар, сейчас нет.
+
+        Пустая очередь — честный ответ, а не поломка: все четыре названия,
+        сравнимые сами по себе, последний раз покупались больше двух лет назад,
+        и разметка их марки сравнения не даст (П-8).
+        """
+        self.assertEqual(D.brand_candidates(self.pipeline), [])
 
     def test_every_candidate_is_already_comparable_by_itself(self):
         """Обещание очереди проверяемое: имя уже набрало наблюдений в двух местах."""

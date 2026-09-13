@@ -15,6 +15,9 @@
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date
+
+from ..history import DAYS_IN_MONTH, PRICE_WINDOW_MONTHS
 
 #: наблюдений у одной площадки, чтобы её медиана что-то значила (Р-2)
 MIN_OBSERVATIONS = 3
@@ -36,11 +39,22 @@ MIN_KEYS_FOR_RANK = 5
 REGULAR_SHARE_OF_TYPICAL = 1 / 3
 
 
+def months_between(earlier, later):
+    """Возраст в месяцах между двумя отметками времени."""
+    if not earlier or not later:
+        return None
+    return max((date.fromisoformat(later[:10])
+                - date.fromisoformat(earlier[:10])).days / DAYS_IN_MONTH, 0.0)
+
+
 @dataclass(frozen=True)
 class VenuePrice:
     venue: str
     median: float
     observations: int
+    #: Когда этот товар покупался у этой площадки в последний раз. Нужен, чтобы
+    #: возраст цены можно было назвать по каждой площадке, а не только по товару.
+    last_ts: str = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +64,29 @@ class KeyComparison:
     key: object
     unit: str
     prices: tuple             # VenuePrice, от дешёвой к дорогой
+    #: Конец истории — точка, от которой считается возраст. Хранится в самом
+    #: сравнении: без него «43 месяца» нельзя ни посчитать, ни проверить.
+    asof: str = None
+
+    @property
+    def last_ts(self):
+        """Самая свежая покупка этого товара где угодно."""
+        stamps = [p.last_ts for p in self.prices if p.last_ts]
+        return max(stamps) if stamps else None
+
+    @property
+    def months_old(self):
+        return months_between(self.last_ts, self.asof)
+
+    @property
+    def stale(self):
+        """Цена старше окна сравнения — при окне по умолчанию не бывает.
+
+        Остаётся значимым, когда окно расширено вызовом: тогда признак честно
+        говорит, что сравнение вышло за пределы современников.
+        """
+        months = self.months_old
+        return months is not None and months > PRICE_WINDOW_MONTHS
 
     @property
     def cheapest(self):
@@ -68,8 +105,16 @@ class KeyComparison:
         return self.spread_abs / self.cheapest.median if self.cheapest.median else 0.0
 
 
-def _by_key_venue(history, keys=None, groups=None):
+def _by_key_venue(history, keys=None, groups=None, window=PRICE_WINDOW_MONTHS,
+                  asof=None):
+    """→ ({ключ: {площадка: [цены]}}, {ключ: {площадка: последняя дата}}).
+
+    `window` — окно наблюдений в месяцах. Оно не про «старое плохо», а про то,
+    что сравнение вообще имеет смысл только между современниками: см. `compare`.
+    """
+    asof = asof or history.span()[1]
     prices = defaultdict(lambda: defaultdict(list))
+    last = defaultdict(dict)
     for e in history.events:
         if e.key is None or e.unit_price is None or not e.venue:
             continue
@@ -77,13 +122,35 @@ def _by_key_venue(history, keys=None, groups=None):
             continue
         if groups and e.key.group not in groups:
             continue
+        if window is not None and (months_between(e.ts, asof) or 0) > window:
+            continue
         prices[e.key][e.venue].append(e.unit_price)
-    return prices
+        if e.ts > last[e.key].get(e.venue, ""):
+            last[e.key][e.venue] = e.ts
+    return prices, last
 
 
 def compare(history, keys=None, groups=None, min_observations=MIN_OBSERVATIONS,
-            min_venues=MIN_VENUES, limit=None, include_blended=False):
+            min_venues=MIN_VENUES, limit=None, include_blended=False,
+            window=PRICE_WINDOW_MONTHS):
     """→ ключи, цену которых можно сравнить между площадками.
+
+    **Сравниваются только современники.** Медиана считается по наблюдениям не
+    старше `window` месяцев — у всех площадок одинаково. Без этого сравнение
+    измеряет не разницу магазинов, а разницу лет: медиана «Ленты» по всей истории
+    — это 2023 год, медиана «Глобуса» — сегодняшний, и «в Ленте дешевле» означает
+    лишь то, что деньги подешевели.
+
+    Найдено измерением (П-8). На датасете сужение окна роняет экономию недельной
+    корзины 334 → 192 → 68 ₽ (вся история → 36 мес → 24 мес). Разница между
+    площадками так себя не ведёт: она бы держалась, теряя товары, но не величину.
+    Так ведёт себя инфляция. До окна маршрут вёл за луком во «ВкусВилл» по цене,
+    которой девять лет.
+
+    Цена правила: сравнимых товаров 25 → 14. Это не потеря ответа, а отказ от
+    ответа, которого не было: сравнить цену 2017 года с ценой 2026-го нельзя,
+    сколько её ни показывай.
+    
 
     Сортировка по абсолютному разрыву: наверху то, где выбор площадки стоит
     дороже всего. Процент показывается рядом, но не сортирует, — правило то
@@ -94,16 +161,20 @@ def compare(history, keys=None, groups=None, min_observations=MIN_OBSERVATIONS,
     2 000 ₽/кг у других» — это разные товары, а не разные цены, и вести
     человека в магазин по такому расчёту нельзя.
     """
+    asof = history.span()[1]
+    by_key, last = _by_key_venue(history, keys, groups, window=window, asof=asof)
     out = []
-    for key, by_venue in _by_key_venue(history, keys, groups).items():
+    for key, by_venue in by_key.items():
         if key.blended and not include_blended:
             continue
-        rows = [VenuePrice(venue=v, median=statistics.median(p), observations=len(p))
+        rows = [VenuePrice(venue=v, median=statistics.median(p), observations=len(p),
+                           last_ts=last[key].get(v))
                 for v, p in by_venue.items() if len(p) >= min_observations]
         if len(rows) < min_venues:
             continue
         rows.sort(key=lambda r: (r.median, r.venue))
-        out.append(KeyComparison(key=key, unit=key.unit, prices=tuple(rows)))
+        out.append(KeyComparison(key=key, unit=key.unit, prices=tuple(rows),
+                                 asof=asof))
     out.sort(key=lambda c: (-c.spread_abs, c.key.group, c.key.label))
     return out[:limit] if limit else out
 
@@ -124,6 +195,20 @@ class RouteLine:
     #: обязательно: иначе человек поедет за тем, чего не собирался брать.
     instead_of: object = None
     share_of_typical: float = None
+    #: Возраст цены, по которой посчитана строка. Печатается всегда, когда цена
+    #: старше окна свежести: маршрут, ведущий в магазин по цене двухлетней
+    #: давности, обязан об этом сказать (П-8).
+    last_ts: str = None
+    asof: str = None
+
+    @property
+    def months_old(self):
+        return months_between(self.last_ts, self.asof)
+
+    @property
+    def stale(self):
+        months = self.months_old
+        return months is not None and months > PRICE_WINDOW_MONTHS
 
     @property
     def saving(self):
@@ -175,6 +260,11 @@ class Route:
     def substituted(self):
         """Строки, сравнённые по другой вашей регулярной марке (Р-25)."""
         return tuple(line for line in self.lines if line.substituted)
+
+    @property
+    def stale(self):
+        """Строки, посчитанные по цене старше окна свежести (П-8)."""
+        return tuple(line for line in self.lines if line.stale)
 
 
 def _units(line):
@@ -232,7 +322,8 @@ def regular_alternative(typical, comparisons, frequencies,
 
 
 def smart_basket(history, basket, min_observations=MIN_OBSERVATIONS,
-                 min_venues=MIN_VENUES, min_share=REGULAR_SHARE_OF_TYPICAL):
+                 min_venues=MIN_VENUES, min_share=REGULAR_SHARE_OF_TYPICAL,
+                 window=PRICE_WINDOW_MONTHS):
     """Корзина, разведённая по площадкам, против лучшей одиночной площадки.
 
     База сравнения — не «текущие траты», а лучшая ОДИНОЧНАЯ площадка: вопрос
@@ -253,8 +344,8 @@ def smart_basket(history, basket, min_observations=MIN_OBSERVATIONS,
     frequencies = key_frequencies(history)
     groups = {l.typical_key.group for l in basket.lines if l.typical_key}
     comparisons = {c.key: c for c in compare(
-        history, groups=groups,
-        min_observations=min_observations, min_venues=min_venues)}
+        history, groups=groups, min_observations=min_observations,
+        min_venues=min_venues, window=window)}
 
     priced, skipped = [], []
     for line in basket.lines:
@@ -316,7 +407,10 @@ def smart_basket(history, basket, min_observations=MIN_OBSERVATIONS,
         lines.append(RouteLine(
             key=c.key, unit=c.unit, units=units, venue=cheapest.venue,
             unit_price=cheapest.median, cost=units * cheapest.median,
-            baseline_cost=base, instead_of=instead_of, share_of_typical=share))
+            baseline_cost=base, instead_of=instead_of, share_of_typical=share,
+            # Возраст берётся у ТОЙ площадки, куда строка ведёт: маршрут
+            # советует ехать именно туда, и важна свежесть именно её цены.
+            last_ts=cheapest.last_ts, asof=c.asof))
     lines.sort(key=lambda r: -r.saving)
 
     return Route(lines=tuple(lines), skipped=tuple(skipped),
@@ -349,7 +443,7 @@ def _stars(value):
 
 
 def price_index(history, groups=None, min_observations=MIN_OBSERVATIONS,
-                min_venues=MIN_VENUES):
+                min_venues=MIN_VENUES, window=PRICE_WINDOW_MONTHS):
     """→ {площадка: (индекс, на скольких ключах)}.
 
     Индекс — медиана отношения «цена этой площадки / медиана по площадкам» по
@@ -359,7 +453,7 @@ def price_index(history, groups=None, min_observations=MIN_OBSERVATIONS,
     """
     ratios = defaultdict(list)
     for c in compare(history, groups=groups, min_observations=min_observations,
-                     min_venues=min_venues):
+                     min_venues=min_venues, window=window):
         mid = statistics.median([p.median for p in c.prices])
         if not mid:
             continue

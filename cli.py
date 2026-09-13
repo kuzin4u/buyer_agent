@@ -23,6 +23,7 @@ from collections import Counter
 from functools import lru_cache
 
 from agent.config import Config, dataset_path
+from agent.history import PRICE_WINDOW_MONTHS
 from agent.settings import Settings
 from agent.adapters.receipts_fns import Pipeline, load_receipts
 from agent.adapters.receipts_fns.pipeline import to_history
@@ -255,13 +256,19 @@ def cmd_venues(args):
         print(f"  в одном месте ({route.best_single}): {money(route.baseline_total)} ₽")
         print(f"  врозь по {len(route.venues)} магазинам: {money(route.split_total)} ₽")
         print(f"  экономия {money(route.saving_abs)} ₽ ({route.saving_pct:.0%})\n")
-        print(f"    {'товар':32}{'магазин':14}{'цена':>9}{'экономия':>10}")
+        print(f"    {'товар':30}{'магазин':13}{'цена':>8}{'возраст':>9}"
+              f"{'экономия':>10}")
         for line in route.lines:
             mark = " ←" if line.substituted else "  "
-            print(f"   {mark}{line.key.label[:31]:31}{line.venue[:14]:14}"
-                  f"{line.unit_price:9.0f}{signed(line.saving):>10}")
+            age = f"{line.months_old:.0f} мес" if line.months_old is not None else "—"
+            print(f"   {mark}{line.key.label[:29]:29}{line.venue[:13]:13}"
+                  f"{line.unit_price:8.0f}{age:>9}{signed(line.saving):>10}")
         print(f"\n  Посчитано по {len(route.lines)} строкам из "
               f"{route.considered} — это {route.covered:.0%} корзины.")
+        print(f"  Сравниваются только современники: цены за последние "
+              f"{PRICE_WINDOW_MONTHS} месяцев")
+        print("  у всех магазинов сразу. Иначе сравнение мерит не разницу")
+        print("  магазинов, а разницу лет.")
         if route.substituted:
             print(f"  ← {len(route.substituted)}: типичный товар сравнить не с чем, "
                   f"цена взята по другой")
@@ -284,13 +291,16 @@ def cmd_venues(args):
     if not rows:
         print("  Сравнивать нечего.")
         return
-    print(f"    {'товар':30}{'разрыв':>8}{'%':>7}  дешевле … дороже")
+    print(f"    {'товар':28}{'разрыв':>8}{'%':>7}{'возраст':>9}  дешевле … дороже")
     for c in rows:
         line = " | ".join(f"{p.venue} {p.median:.0f}" for p in c.prices)
-        print(f"    {c.key.label[:30]:30}{c.spread_abs:8.0f}{c.spread_pct:+7.0%}  "
-              f"{line[:60]}")
+        age = f"{c.months_old:.0f} мес" if c.months_old is not None else "—"
+        print(f"    {c.key.label[:28]:28}{c.spread_abs:8.0f}{c.spread_pct:+7.0%}"
+              f"{age:>9}  {line[:52]}")
     print(f"\n  Сравнимых товаров {len(P.compare(history))}: нужно не меньше трёх")
-    print("  покупок в каждом из не менее чем двух магазинов (Р-2).")
+    print(f"  покупок в каждом из не менее чем двух магазинов (Р-2), и все —")
+    print(f"  за последние {PRICE_WINDOW_MONTHS} месяцев: цену 2017 года не с чем")
+    print("  сравнивать в 2026-м (П-8).")
 
 
 def cmd_choose(args):

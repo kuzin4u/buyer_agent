@@ -23,7 +23,8 @@
   </section>
   <section class="card">
     <table>
-      <thead><tr><th>товар</th><th>магазин</th><th class="n">цена</th><th class="n">экономия</th></tr></thead>
+      <thead><tr><th>товар</th><th>магазин</th><th class="n">цена</th>
+        <th class="n">возраст цены</th><th class="n">экономия</th></tr></thead>
       <tbody>
       {% for line in route.lines %}
         <tr><td class="w">{{ line.key.label }}
@@ -32,6 +33,8 @@
             {{ line.share_of_typical|pct }} от самой частой</i>{% endif %}</td>
           <td>{{ line.venue }}</td>
           <td class="n">{{ line.unit_price|money }} {{ line.unit|unit }}</td>
+          <td class="n {% if line.stale %}bad{% endif %}">
+            {% if line.months_old is not none %}{{ line.months_old|round|int }} мес{% else %}—{% endif %}</td>
           <td class="n good">{{ line.saving|signed }} ₽</td></tr>
       {% endfor %}
       </tbody>
@@ -40,6 +43,12 @@
       {{ route.considered }} — это {{ route.covered|pct }} корзины. База сравнения —
       лучший ОДИН магазин, а не текущие траты: вопрос звучит «ехать в два места или
       в одно», и оба сценария считаются по одним и тем же строкам.</p>
+    <p class="muted">Сравниваются только современники: цены за последние
+      {{ PRICE_WINDOW_MONTHS }} месяцев у всех магазинов сразу. Без этого сравнение
+      мерит не разницу магазинов, а разницу лет — медиана одного магазина
+      оказывалась из 2023 года, другого из 2026-го, и «там дешевле» означало лишь,
+      что деньги подешевели. Возраст цены напечатан рядом: он бывает и полтора
+      года, и это стоит знать, прежде чем ехать.</p>
     {% if route.substituted %}
       <p class="muted">У {{ route.substituted|length }} строк типичный товар сравнить
         не с чем, и цена взята по другой вашей регулярной марке той же группы. Это не
@@ -65,21 +74,26 @@
   </section>
   <section class="card">
     <table>
-      <thead><tr><th>товар</th><th class="n">разрыв</th><th class="n">%</th><th>дешевле … дороже</th></tr></thead>
+      <thead><tr><th>товар</th><th class="n">разрыв</th><th class="n">%</th>
+        <th class="n">возраст</th><th>дешевле … дороже</th></tr></thead>
       <tbody>
       {% for c in rows %}
         <tr>
           <td class="w">{{ c.key.label }}</td>
           <td class="n">{{ c.spread_abs|money }}</td>
           <td class="n">{{ c.spread_pct|signed_pct }}</td>
+          <td class="n {% if c.stale %}bad{% endif %}">
+            {% if c.months_old is not none %}{{ c.months_old|round|int }} мес{% else %}—{% endif %}</td>
           <td>{% for p in c.prices %}{{ p.venue }} <b>{{ p.median|money }}</b>{% if not loop.last %} · {% endif %}{% endfor %}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
     <p class="muted">Сравнимых товаров {{ total }}: нужно не меньше трёх покупок в
-      каждом из не менее чем двух магазинов. Порог не снижается — по одной-двум
-      покупкам медиана ничего не значит.</p>
+      каждом из не менее чем двух магазинов, и все — за последние
+      {{ PRICE_WINDOW_MONTHS }} месяцев. Порог не снижается: по одной-двум покупкам
+      медиана ничего не значит. Окно тоже не раздвигается: цену 2017 года не с чем
+      сравнивать в 2026-м, и «дешевле» по ней означало бы только инфляцию.</p>
   </section>
   {% endif %}
 {% endif %}

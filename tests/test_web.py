@@ -426,17 +426,16 @@ class DiagnosticsTest(unittest.TestCase):
         body = self.get("/diagnostics")
         self.assertIn("Разметить", body)
 
-    def test_smart_basket_shows_the_substituted_mark(self):
-        """Сравнение по другой марке — всё ещё ответ, но человек обязан знать."""
+    def test_smart_basket_shows_the_price_age(self):
+        """Возраст цены печатается рядом с ценой (П-8)."""
         body = flat(self.get("/venues?period=week"))
-        self.assertIn("сравнили по этой вашей марке вместо", body)
-        self.assertIn("от самой частой", body)
+        self.assertIn("возраст цены", body)
+        self.assertIn("только современники", body)
 
-    def test_smart_basket_separates_the_two_skip_reasons(self):
-        """«Не с чем сравнить» и «нет у базовой площадки» — разные причины."""
+    def test_smart_basket_names_the_skip_reason(self):
+        """Непосчитанные строки названы причиной, а не свалены в остаток."""
         body = flat(self.get("/venues?period=week"))
         self.assertIn("сравнить не с чем (цена известна не у двух магазинов", body)
-        self.assertIn("у базового магазина этого товара нет", body)
 
     def test_panel_does_not_promise_that_pools_need_one_rule(self):
         body = self.get("/diagnostics")
@@ -444,9 +443,11 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertIn("расщепляет", body)
 
     def test_effect_queue_is_shown_with_its_promise(self):
-        body = self.get("/diagnostics")
+        """Очередь по эффекту на месте, и пустая она объясняет себя (П-8)."""
+        body = flat(self.get("/diagnostics"))
         self.assertIn("Что разметить, чтобы прибавился сравнимый товар", body)
-        self.assertIn("ДСК ОГУРЦЫ КОРОТКОПЛОДНЫЕ 450Г", body)
+        self.assertIn("внутри окна сравнения", body)
+        self.assertIn("Очередь пуста", body)
 
     def test_both_queues_and_pack_sources_are_on_the_panel(self):
         body = self.get("/diagnostics")
@@ -469,24 +470,26 @@ class DiagnosticsTest(unittest.TestCase):
 
     @fixture.slow
     def test_replenishment_measures_the_main_question(self):
-        """То, ради чего всё: после правила видно движение ответа, а не процентов."""
-        before = self.reach()
+        """То, ради чего всё: после правила видно движение ответа, а не процентов.
+
+        Правило «ДСК ОГУРЦЫ» под окном сравнения ничего не двигает — эти покупки
+        восьмилетней давности (П-8), — и панель обязана сказать именно это, а не
+        нарисовать успех. Проверяется, что цепочка измерена и показана целиком.
+        """
         response = self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
         self.assertEqual(response.status_code, 303)
-        after = self.reach()
-        self.assertGreater(after.comparable_shown, before.comparable_shown)
-
         body = self.get(response.headers["location"])
         self.assertIn("Что дало правило", body)
         self.assertIn("Сравнимо между магазинами", body)
         self.assertIn("Разводится по магазинам", body)
-        self.assertIn("приблизило ответ на главный вопрос", body)
+        self.assertIn("не сдвинулся", body)
 
     @fixture.slow
     def test_rule_effect_is_remembered_and_shown_later(self):
+        """Эффект записан рядом с правилом — и когда он нулевой, тоже."""
         self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
         rule = self.rules()[0]
-        self.assertTrue(rule["effect"]["useful"])
+        self.assertIn("useful", rule["effect"])
         decisive = [s for s in rule["effect"]["steps"] if s["decisive"]]
         self.assertTrue(decisive)
         self.assertIn("Ваши правила", self.get("/diagnostics"))
@@ -508,23 +511,26 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertIn("исправление отнесения", body)
 
     @fixture.slow
-    def test_user_rule_changes_the_answer_of_8_6(self):
-        """Правило должно дойти до страницы, а не только до панели."""
-        before = self.get("/venues")
+    def test_user_rule_reaches_the_pipeline(self):
+        """Правило доходит до разбора названий, а не оседает в базе.
+
+        До ответа 8.6 оно при этом может не дойти: под окном сравнения покупки
+        «ДСК ОГУРЦЫ» слишком старые (П-8). Проверяется то, что от правила
+        действительно зависит, — разметка позиций.
+        """
+        before = self.get("/diagnostics/positions?search=ДСК ОГУРЦЫ")
+        self.assertNotIn("<td>ДСК</td>", before)
         self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
-        after = self.get("/venues")
-        self.assertNotEqual(before, after)
-        self.assertIn("ДСК", after)
+        after = self.get("/diagnostics/positions?search=ДСК ОГУРЦЫ")
+        self.assertIn("<td>ДСК</td>", after)
 
     @fixture.slow
     def test_rollback_is_measured_too(self):
         self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
-        with_rule = self.reach()
         rule_id = self.rules()[0]["id"]
         response = self.client.post(f"/diagnostics/rules/{rule_id}/delete")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Что изменил откат правила", response.text)
-        self.assertLess(self.reach().comparable_shown, with_rule.comparable_shown)
         self.assertEqual(self.rules(), [])
 
     def test_broken_rule_is_refused_with_a_page(self):

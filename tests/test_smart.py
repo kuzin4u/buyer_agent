@@ -132,22 +132,31 @@ class VerifyTest(unittest.TestCase):
         cls.given = S.facts("venues", cls.payload)
 
     def test_quoting_the_data_passes(self):
-        text = ("Дешевле всего в Глобусе — 1 246 ₽. Врозь по магазинам выйдет "
-                "912 ₽, экономия 334 ₽, это 27%.")
-        self.assertTrue(check(text, self.given).ok)
+        route = self.payload["route"]
+        text = (f"Дешевле всего в одном месте — {route.baseline_total:.0f} ₽. "
+                f"Врозь выйдет {route.split_total:.0f} ₽, экономия "
+                f"{route.saving_abs:.0f} ₽.")
+        self.assertTrue(check(text, self.given).ok, self.given)
 
     def test_invented_number_is_caught(self):
         self.assertFalse(check("Вы сэкономите 512 ₽.", self.given).ok)
 
+    def test_price_age_reaches_the_model(self):
+        """Возраст цены — часть ответа, и модель обязана его видеть (П-8)."""
+        self.assertIn("мес", self.given)
+
     def test_plausible_extrapolation_is_caught(self):
         """Худший случай: число выведено верной арифметикой из верных данных.
 
-        334 × 52 = 17 368 — «экономия в год». Ядро этого не считало, значит
-        посчитала модель, а считать ей нельзя.
+        Экономия за неделю, умноженная на 52, — «экономия в год». Ядро этого не
+        считало, значит посчитала модель, а считать ей нельзя.
         """
-        verdict = check("Экономия 334 ₽ в неделю — это 17 368 ₽ в год.", self.given)
+        saving = self.payload["route"].saving_abs
+        year = f"{saving * 52:.0f}"
+        verdict = check(f"Экономия {saving:.0f} ₽ в неделю — это {year} ₽ в год.",
+                        self.given)
         self.assertFalse(verdict.ok)
-        self.assertIn("17 368", verdict.invented)
+        self.assertIn(year, verdict.invented)
 
     def test_number_from_internals_is_caught(self):
         """Число из ответа ядра, но не из показанных фактов, тоже отбраковано."""
@@ -161,8 +170,9 @@ class VerifyTest(unittest.TestCase):
         self.assertTrue(check("Разложил корзину на 3 магазина.", self.given).ok)
 
     def test_rounding_is_allowed_but_wrong_rounding_is_not(self):
-        self.assertTrue(check("Экономия 334 ₽.", self.given).ok)
-        self.assertFalse(check("Экономия 340 ₽.", self.given).ok)
+        saving = self.payload["route"].saving_abs
+        self.assertTrue(check(f"Экономия {saving:.0f} ₽.", self.given).ok)
+        self.assertFalse(check(f"Экономия {saving + 6:.0f} ₽.", self.given).ok)
 
     def test_verdict_names_what_was_invented(self):
         verdict = check("Итого 999 ₽ и ещё 888 ₽.", self.given)
@@ -184,11 +194,11 @@ class SmartFlowTest(unittest.TestCase):
 
     def test_model_chooses_the_function_and_core_computes(self):
         client = FakeClient(tool="venues", params={"period": "week"},
-                            text="Дешевле всего в Глобусе — 1 246 ₽.")
+                            text="Дешевле всего покупать в одном месте.")
         result = S.answer("где дешевле корзина", self.session, client=client)
         self.assertTrue(result.ok, result.reason)
         self.assertEqual(result.intent.scenario, "venues")
-        self.assertIn("1 246", result.text)
+        self.assertIn("одном месте", result.text)
         # Ядро посчитало само: в ответе лежит его объект, а не текст модели.
         self.assertIn("route", result.payload)
 

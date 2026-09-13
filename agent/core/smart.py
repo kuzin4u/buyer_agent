@@ -332,11 +332,18 @@ def _facts_venues(p):
                 ("экономия, доля", f"{route.saving_pct:.0%}"),
                 ("разведено строк", len(route.lines)),
                 ("всего строк", route.considered)]
-        rows += [(f"{line.key.label}", f"{line.venue}, {line.unit_price:.0f}, "
-                  f"экономия {_money(line.saving)} ₽") for line in route.lines[:6]]
+        rows += [(f"{line.key.label}",
+                  f"{line.venue}, {line.unit_price:.0f}, "
+                  f"экономия {_money(line.saving)} ₽"
+                  + (f", цене {line.months_old:.0f} мес"
+                     if line.months_old is not None else ""))
+                 for line in route.lines[:6]]
         return rows
     rows = [("сравнимых товаров", p["total"])]
-    rows += [(c.key.label, " · ".join(f"{x.venue} {x.median:.0f}" for x in c.prices))
+    rows += [(c.key.label,
+              " · ".join(f"{x.venue} {x.median:.0f}" for x in c.prices)
+              + (f" (цене {c.months_old:.0f} мес)"
+                 if c.months_old is not None else ""))
              for c in p["rows"][:8]]
     return rows
 

@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from agent.adapters.receipts_fns import Pipeline, load_receipts
 from agent.adapters.receipts_fns.pipeline import to_history
 from agent.config import Config, dataset_path
+from agent.history import PRICE_WINDOW_MONTHS
 from agent.adapters.receipts_fns import diagnostics as D
 from agent.core import Intent, Parser, SCENARIOS, Session, run_scenario
 from agent.core import smart as S
@@ -112,7 +113,8 @@ templates.env.filters.update(money=money, signed=signed, pct=pct,
                              period_ru=lambda v: PERIOD_RU.get(v, v or "—"),
                              period_acc=lambda v: PERIOD_ACC.get(v, v or "—"),
                              by_ru=lambda v: BY_RU.get(v, v))
-templates.env.globals.update(UNIT=UNIT, PERIOD_RU=PERIOD_RU, BY_RU=BY_RU)
+templates.env.globals.update(UNIT=UNIT, PERIOD_RU=PERIOD_RU, BY_RU=BY_RU,
+                             PRICE_WINDOW_MONTHS=PRICE_WINDOW_MONTHS)
 
 
 # --- состояние процесса ---

@@ -205,12 +205,24 @@ class RegularAlternativeTest(unittest.TestCase):
     привычки; сравнить по разовой покупке — подмена.
     """
 
+    #: Окно сравнения раздвинуто намеренно. Под окном по умолчанию (24 месяца)
+    #: подстановка на этом датасете не срабатывает: единственная регулярная
+    #: марка, которая годилась, — «Оксское · 30 шт», а её не покупали 31 месяц
+    #: (П-8). Механизм подстановки от этого не изменился, и проверять надо его, а
+    #: не совпадение дат в датасете.
+    WINDOW = None
+
     @classmethod
     def setUpClass(cls):
         cls.history = fixture.history()
         cls.profile = fixture.profile()
         cls.basket = for_period(cls.profile, "week")
-        cls.route = smart_basket(cls.history, cls.basket)
+        cls.route = smart_basket(cls.history, cls.basket, window=cls.WINDOW)
+
+    def test_no_substitution_inside_the_freshness_window(self):
+        """Под окном подставлять нечего, и выдумывать подстановку не надо."""
+        fresh = smart_basket(self.history, self.basket)
+        self.assertEqual(fresh.substituted, ())
 
     def test_substitution_happens_and_is_marked(self):
         """§8.3-подобное требование: чем заменили — обязательная часть ответа."""
@@ -231,21 +243,24 @@ class RegularAlternativeTest(unittest.TestCase):
 
     def test_substitution_adds_lines_against_typical_only(self):
         """Подстановка расширяет ответ, а не подменяет его."""
-        strict = smart_basket(self.history, self.basket, min_share=1.01)
+        strict = smart_basket(self.history, self.basket, min_share=1.01,
+                              window=self.WINDOW)
         self.assertGreater(len(self.route.lines), len(strict.lines))
 
     def test_a_rare_mark_is_never_substituted(self):
         """Порог — не формальность: ниже него это уже разовая покупка."""
-        loose = smart_basket(self.history, self.basket, min_share=0.01)
+        loose = smart_basket(self.history, self.basket, min_share=0.01,
+                             window=self.WINDOW)
         for line in loose.substituted:
             self.assertGreaterEqual(line.share_of_typical, 0.01)
-        strict = smart_basket(self.history, self.basket, min_share=0.9)
+        strict = smart_basket(self.history, self.basket, min_share=0.9,
+                              window=self.WINDOW)
         for line in strict.substituted:
             self.assertGreaterEqual(line.share_of_typical, 0.9)
 
     def test_regular_alternative_refuses_other_units(self):
         frequencies = key_frequencies(self.history)
-        comparisons = {c.key: c for c in compare(self.history)}
+        comparisons = {c.key: c for c in compare(self.history, window=self.WINDOW)}
         for key in frequencies.get("moloko", {}):
             alternative, _share = regular_alternative(key, comparisons, frequencies)
             if alternative is not None:
