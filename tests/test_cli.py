@@ -40,6 +40,34 @@ class CliTest(unittest.TestCase):
         budget = run("basket", "--budget", "1500")
         self.assertIn("1 500", budget)
 
+    def test_budget_shows_what_was_swapped(self):
+        """§8.3: чем именно заменили — обязательная часть ответа."""
+        out = run("budget", "15500", "--period", "month")
+        self.assertIn("8.3 КОРЗИНА ПОД 15 500 ₽", out)
+        self.assertIn("Чем заменили", out)
+        self.assertIn("Арза", out)          # Боржоми → Арза, −61%
+        self.assertIn("итого:", out)
+
+    def test_budget_reports_coverage_of_the_lever(self):
+        """Сколько строк заменить было нечем и почему — это часть ответа, а не
+        диагностика: «марка не распознана» пользователь может исправить сам."""
+        out = run("budget", "2000")
+        self.assertIn("Покрытие рычага", out)
+        self.assertIn("словарь брендов", out)
+        self.assertIn("весовой товар", out)
+
+    def test_budget_says_when_the_basket_comes_out_empty(self):
+        """«Уложились, запас 50 ₽» на пустой корзине — издёвка, а не ответ."""
+        out = run("budget", "50")
+        self.assertIn("КОРЗИНА ПУСТА", out)
+        self.assertNotIn("запас", out)
+
+    def test_basket_budget_points_at_8_3(self):
+        """Два «бюджета» в одной оболочке обязаны объяснять разницу."""
+        out = run("basket", "--budget", "2000")
+        self.assertIn("Это 8.2", out)
+        self.assertIn("budget 2 000", out)
+
     def test_lapsed(self):
         out = run("lapsed")
         self.assertIn("8.4 ЧТО ДАВНО НЕ ПОКУПАЛ", out)

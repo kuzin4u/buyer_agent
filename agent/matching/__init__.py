@@ -1,9 +1,14 @@
-"""Подбор позиций из каталога (SPEC §8.3, §8.10). Наполняется в С4.
+"""Подбор позиций из каталога (SPEC §8.3, §8.10).
 
-Здесь заранее уложен единственный шов, который дорого добавлять потом:
-**горизонт**. Он аргумент функции подбора, но получить его можно только из
-режима позиции — злоупотребление становится невозможным, а не запрещённым
-(SPEC §8.10).
+Здесь лежит единственный шов, который дорого добавлять потом: **горизонт**. Он
+аргумент функции подбора, но получить его можно только из режима позиции —
+злоупотребление становится невозможным, а не запрещённым (SPEC §8.10).
+
+Состав слоя:
+    catalog.py   из чего подбираем: предложения и их режим
+    budget.py    8.3 корзина под бюджет — замена дорогого на дешёвое, потом выброс
+
+
 """
 
 from dataclasses import dataclass
@@ -52,3 +57,15 @@ def check_horizon(catalog_mode, horizon):
 #: Для первой версии закупщика доступен только собственный каталог покупок,
 #: поэтому весь режим — повторяемый (SPEC §8.10).
 OWN_HISTORY_MODE = Mode.REPEATABLE
+
+
+# Ниже, а не выше: подмодули берут отсюда Mode и Horizon, и до их определения
+# импортировать их нечем.
+from .catalog import (Catalog, Offer, PRICE_WINDOW_MONTHS, from_history,  # noqa: E402
+                      substitutable)
+from .budget import (Fit, FitLine, MIN_GAIN_SHARE, Swap, candidates, fit)  # noqa: E402
+
+__all__ = ["Mode", "Horizon", "check_horizon", "OWN_HISTORY_MODE",
+           "Catalog", "Offer", "PRICE_WINDOW_MONTHS", "from_history",
+           "substitutable",
+           "Fit", "FitLine", "MIN_GAIN_SHARE", "Swap", "candidates", "fit"]

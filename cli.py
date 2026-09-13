@@ -4,6 +4,7 @@
     python3 cli.py profile                     8.1 профиль предпочтений
     python3 cli.py basket --period week        8.2 корзина «как обычно»
     python3 cli.py basket --budget 2000        8.2 то же под заданную сумму
+    python3 cli.py budget 2000                 8.3 уложиться в сумму с заменами
     python3 cli.py lapsed                      8.4 что давно не покупал
     python3 cli.py prices                      8.5 динамика цен внутри SKU
     python3 cli.py venues                      8.6 где что дешевле
@@ -18,12 +19,14 @@
 
 import argparse
 import sys
+from collections import Counter
 from functools import lru_cache
 
 from agent.config import Config, dataset_path
 from agent.settings import Settings
 from agent.adapters.receipts_fns import Pipeline, load_receipts
 from agent.adapters.receipts_fns.pipeline import to_history
+from agent import matching as M
 from agent import profile as P
 
 WIDTH = 64
@@ -115,6 +118,79 @@ def cmd_basket(args):
     print(f"\n  Итого: {len(basket)} позиций, {money(basket.total)} ₽")
     if any(x.reason == "обязательная" for x in basket.lines):
         print("  * — обязательная позиция из ваших настроек")
+    if args.budget:
+        print("\n  Это 8.2: состав «как обычно», обрезанный по сумме. Уложиться в")
+        print(f"  сумму, заменяя дорогое на дешёвое внутри группы, — "
+              f"`budget {money(args.budget)}` (8.3).")
+
+
+def cmd_budget(args):
+    history, settings, prof = load(args)
+    catalog = M.from_history(history)
+    f = M.fit(prof, catalog, args.amount, period=args.period, settings=settings)
+
+    head(f"8.3 КОРЗИНА ПОД {money(args.amount)} ₽ — {args.period}")
+    print(f"  как обычно:{money(f.total_before):>12} ₽")
+    if f.swaps:
+        print(f"  заменами:  {signed(-f.saved_by_swaps):>12} ₽   "
+              f"замен: {len(f.swaps)}")
+    if f.dropped:
+        print(f"  выброшено: {signed(-f.saved_by_drops):>12} ₽   "
+              f"групп: {len(f.dropped)}")
+    print(f"  итого:     {money(f.total):>12} ₽", end="")
+    if f.empty:
+        cheapest = f.cheapest_dropped
+        print("   КОРЗИНА ПУСТА")
+        print(f"\n  В эту сумму не входит ничего: самая дешёвая регулярная группа — "
+              f"{cheapest.group}")
+        print(f"  за {money(cheapest.amount)} ₽. Бюджет закрылся тем, что покупать "
+              f"нечего, а это не ответ.")
+        print(f"  Посмотрите корзину на {args.period} целиком: "
+              f"`basket --period {args.period}`.")
+        return
+    if f.fits:
+        print(f"   запас {money(f.slack)} ₽")
+    else:
+        print(f"   НЕ УЛОЖИЛИСЬ: не хватает {money(-f.slack)} ₽")
+        print("\n  Дальше сжимать нечем: в корзине остались только обязательные")
+        print("  позиции из ваших настроек, а их агент не выбрасывает (§3.3).")
+
+    if f.swaps:
+        print("\n  Чем заменили — потребность та же, товар другой:")
+        for line in sorted((x for x in f.lines if x.swap), key=lambda x: -x.swap.saving):
+            s = line.swap
+            mark = " *" if s.marginal else "  "
+            print(f"   {mark}{line.group:12}{line.was[:24]:24}{s.from_price:7.0f}"
+                  f" → {line.label[:24]:24}{s.to_price:7.0f} {UNIT[s.unit]:5}"
+                  f"{signed(-s.saving):>8} ₽ ({s.gain_share:.0%})")
+        if any(x.swap.marginal for x in f.lines if x.swap):
+            print(f"   * — выгода меньше {M.MIN_GAIN_SHARE:.0%}; такая замена применена")
+            print("       только потому, что иначе группу пришлось бы выбросить")
+
+    print(f"\n  Корзина, позиций: {len(f.lines)}")
+    for dept, lines in f.by_dept().items():
+        print(f"\n  {dept}")
+        for line in lines:
+            mark = "*" if line.reason == "обязательная" else ("→" if line.swap else " ")
+            print(f"   {mark} {line.group:14}×{line.qty:<3}{money(line.amount):>8} ₽"
+                  f"   {line.label[:30]}")
+
+    if f.dropped:
+        print("\n  Выброшено, с самого нерегулярного:")
+        for line in f.dropped:
+            stat = prof.groups.get(line.group)
+            rate = f"{stat.per_month:.2f}/мес" if stat else "—"
+            print(f"     {line.group:14}{money(line.amount):>8} ₽   берётся {rate}")
+
+    print(f"\n  Покрытие рычага. Строк в корзине {f.considered}; цену в окне "
+          f"{catalog.window[0]} … {catalog.window[1]}")
+    print(f"  каталог знает у {f.comparable}, заменить было чем {f.substitutable}. "
+          f"Почему не у всех:")
+    for reason, n in Counter(x.blocked for x in f.lines if x.blocked).most_common():
+        print(f"     {n:3}  {reason}")
+    if not f.substitution_allowed:
+        print("\n  Замены не предлагались вовсе: горизонт подбора — разовая среда,")
+        print("  где верить можно только цене (SPEC §8.10).")
 
 
 def cmd_lapsed(args):
@@ -270,6 +346,12 @@ def main(argv=None):
     p.add_argument("--period", choices=("day", "week", "month"))
     p.add_argument("--budget", type=float)
     p.set_defaults(fn=cmd_basket)
+
+    p = sub.add_parser("budget", help="8.3 уложиться в сумму")
+    p.add_argument("amount", type=float, help="сколько ₽ можно потратить")
+    p.add_argument("--period", default="week", choices=("day", "week", "month"),
+                   help="на какой срок корзина; по умолчанию неделя")
+    p.set_defaults(fn=cmd_budget)
 
     p = sub.add_parser("lapsed", help="8.4 что давно не покупал")
     p.add_argument("--asof", help="дата отсчёта; по умолчанию конец истории")
