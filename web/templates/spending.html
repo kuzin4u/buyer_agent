@@ -33,14 +33,17 @@
   <h2>{{ months }} мес против предыдущих {{ months }}</h2>
   <div class="chart"><canvas id="growth-chart"></canvas></div>
   <script id="growth-data" type="application/json">{{ chart|tojson }}</script>
+  <p class="muted">На графике первые {{ chart|length }} строк таблицы — они в ней
+    подчёркнуты: наведите на строку, чтобы найти её столбики.</p>
 </section>
 <section class="card">
-  <table>
+  <table id="growth-table">
     <thead><tr><th>ключ</th><th class="n">было</th><th class="n">стало</th>
       <th class="n">изменение</th><th class="n">%</th></tr></thead>
     <tbody>
     {% for t in trends %}
-      <tr><td class="w">{{ t.key|keylabel(by) }}</td><td class="n">{{ t.before|money }}</td>
+      <tr {% if loop.index0 < chart|length %}data-series="{{ loop.index0 }}"{% endif %}>
+        <td class="w">{{ t.key|keylabel(by) }}</td><td class="n">{{ t.before|money }}</td>
         <td class="n">{{ t.after|money }}</td>
         <td class="n {% if t.delta_abs > 0 %}bad{% else %}good{% endif %}">{{ t.delta_abs|signed }}</td>
         <td class="n">{{ t.delta_pct|signed_pct }}</td></tr>
@@ -56,13 +59,16 @@
   <h2>Траты в разрезе «{{ by|by_ru }}»</h2>
   <div class="chart"><canvas id="spending-chart"></canvas></div>
   <script id="spending-data" type="application/json">{{ chart|tojson }}</script>
+  <p class="muted">На графике первые {{ chart|length }} строк таблицы — они в ней
+    подчёркнуты: наведите на строку, чтобы найти её столбик.</p>
 </section>
 <section class="card">
-  <table>
+  <table id="spending-table">
     <thead><tr><th>ключ</th><th class="n">сумма</th><th class="n">сделок</th><th class="n">доля</th></tr></thead>
     <tbody>
     {% for b in buckets %}
-      <tr><td class="w">{{ b.key|keylabel(by) }}</td><td class="n">{{ b.amount|money }} ₽</td>
+      <tr {% if loop.index0 < chart|length %}data-series="{{ loop.index0 }}"{% endif %}>
+        <td class="w">{{ b.key|keylabel(by) }}</td><td class="n">{{ b.amount|money }} ₽</td>
         <td class="n">{{ b.txns }}</td><td class="n">{{ b.share|pct(1) }}</td></tr>
     {% endfor %}
     </tbody>

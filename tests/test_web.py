@@ -118,11 +118,18 @@ class WebTest(unittest.TestCase):
         self.assertIn("не входит ничего", body)
 
     def test_prices_chart_carries_data_and_a_table(self):
-        """График — пересказ таблицы, а не замена: на странице обязаны быть оба."""
+        """График — пересказ таблицы, а не замена: на странице обязаны быть оба.
+
+        Таблица ищется как элемент, а не как строка «<table>»: у неё появился
+        id, и проверка по точному написанию сломалась на правке, которая её
+        смысла не касалась. Проверять надо, что таблица есть, а не как записан
+        её открывающий тег.
+        """
         body = self.get("/prices")
         self.assertIn('id="prices-data"', body)
         self.assertIn("prices-chart", body)
-        self.assertIn("<table>", body)
+        self.assertRegex(body, r"<table[ >]")
+        self.assertIn("</table>", body)
 
     def test_venues_smart_basket_shows_coverage(self):
         body = self.get("/venues?period=week")

@@ -147,6 +147,10 @@ document.getElementById("frame").onload = function () {
 
       out.datasets = chart.data.datasets.length;
       out.labels = chart.data.datasets.map(function (d) { return d.label; });
+      /* Снимок исходных цветов — ДО любого наведения: наведение подсвечивает
+         ряд, и цвета, снятые после него, уже не исходные. */
+      out.colorsBefore = chart.data.datasets.map(function (d) {
+        return d.borderColor; });
 
       /* Точка строго между двумя соседними узлами: если подсказка ловится
          только точным попаданием в узел, здесь её не будет.
@@ -201,23 +205,27 @@ document.getElementById("frame").onload = function () {
         return b.lines.join(" ");
       });
 
+      /* Курсор уводится с холста настоящим событием: подсветка наведением
+         перебивает закреплённую кликом, и без этого проверялась бы не легенда.
+         Заодно это и проверка того, что уход курсора её снимает. */
+      canvas.dispatchEvent(new win.MouseEvent("mouseout",
+        {bubbles: true, view: win}));
+      out.hotCleared = chart.$hot;
+
       /* Клик по названию в легенде — по второму ряду, если он есть. */
       var index = chart.data.datasets.length > 1 ? 1 : 0;
       var hit = chart.legend.legendHitBoxes[index];
       out.legendBoxes = chart.legend.legendHitBoxes.length;
       var cx = hit.left + hit.width / 2, cy = hit.top + hit.height / 2;
-
-      out.colorsBefore = chart.data.datasets.map(function (d) {
-        return d.borderColor; });
       chart._eventHandler(at("click", cx, cy));
-      out.isolated = chart.$isolated;
+      out.isolated = chart.$pin ? chart.$pin.kind + ":" + chart.$pin.at : null;
       out.colorsAfter = chart.data.datasets.map(function (d) {
         return d.borderColor; });
       out.hiddenAfter = chart.data.datasets.map(function (d, i) {
         return !!chart.getDatasetMeta(i).hidden; });
 
       chart._eventHandler(at("click", cx, cy));
-      out.isolatedAgain = chart.$isolated;
+      out.isolatedAgain = chart.$pin;
       out.colorsRestored = chart.data.datasets.map(function (d) {
         return d.borderColor; });
 
@@ -226,6 +234,107 @@ document.getElementById("frame").onload = function () {
       document.title = "FAILED:" + encodeURIComponent(String((e && e.stack) || e));
     }
   }, 800);
+};
+</script>
+</body></html>
+"""
+
+
+#: Пробник связи «строка таблицы ↔ ряд графика».
+#:
+#: Мышь по строке подаётся настоящими событиями: обработчики висят на самой
+#: строке, и браузер их вызывает честно. А вот наведение на ГРАФИК идёт через
+#: обработчик Chart.js по той же причине, что и в INTERACT: у синтетического
+#: события offsetX равен clientX, и точка приходит вне области графика.
+LINKED = """<!doctype html>
+<html><head><meta charset="utf-8"><title>pending</title></head>
+<body>
+<iframe id="frame" src="%(path)s" style="width:1200px;height:2400px;border:0"></iframe>
+<script>
+document.getElementById("frame").onload = function () {
+  var frame = this;
+  setTimeout(function () {
+    try {
+      var win = frame.contentWindow, doc = frame.contentDocument, out = {};
+      var chart = win.Chart.getChart(doc.getElementById("%(chart)s"));
+      var linked = doc.querySelectorAll("#%(table)s tr[data-series]");
+      var all = doc.querySelectorAll("#%(table)s tbody tr");
+      var kind = "%(kind)s";
+
+      out.rowsTotal = all.length;
+      out.rowsLinked = linked.length;
+      out.datasets = chart.data.datasets.length;
+      out.points = chart.data.datasets[0].data.length;
+      out.everyLinkedIsMarked = Array.prototype.every.call(linked, function (r) {
+        return r.classList.contains("linked"); });
+      out.unlinkedAreNotMarked = Array.prototype.every.call(all, function (r) {
+        return r.hasAttribute("data-series") || !r.classList.contains("linked"); });
+
+      function fire(el, type) {
+        el.dispatchEvent(new win.MouseEvent(type, {bubbles: true, view: win}));
+      }
+      function colours() {
+        return chart.data.datasets.map(function (d) {
+          return Array.isArray(d.backgroundColor)
+            ? d.backgroundColor.slice() : d.backgroundColor;
+        });
+      }
+      function borders() {
+        return chart.data.datasets.map(function (d) { return d.borderColor; });
+      }
+
+      out.baseColours = colours();
+      out.baseBorders = borders();
+
+      var row = linked[2];
+      fire(row, "mouseenter");
+      out.hot = chart.$hot ? chart.$hot.kind + ":" + chart.$hot.at : null;
+      out.hotColours = colours();
+      out.hotBorders = borders();
+      out.hotRowLit = row.classList.contains("lit");
+
+      fire(row, "mouseleave");
+      out.afterLeaveHot = chart.$hot;
+      out.afterLeaveColours = colours();
+      out.afterLeaveBorders = borders();
+      out.afterLeaveRowLit = row.classList.contains("lit");
+
+      fire(row, "click");
+      out.pin = chart.$pin ? chart.$pin.kind + ":" + chart.$pin.at : null;
+      out.pinnedRow = row.classList.contains("pinned");
+      out.pinColours = colours();
+      fire(row, "click");
+      out.pinAfterSecond = chart.$pin;
+      out.afterUnpinColours = colours();
+
+      /* Обратный ход: наведение на график подсвечивает строку. */
+      var target = (kind === "dataset") ? 4 : 0;
+      var meta = chart.getDatasetMeta(target);
+      var points = meta.data.filter(function (p) {
+        return p && !isNaN(p.x) && !isNaN(p.y); });
+      var spot = (kind === "dataset") ? points[0] : points[3];
+      chart._eventHandler({type: "mousemove", chart: chart, x: spot.x, y: spot.y,
+        native: new win.MouseEvent("mousemove", {bubbles: true, view: win})});
+      out.reverseHot = chart.$hot ? chart.$hot.kind + ":" + chart.$hot.at : null;
+      out.reverseLitRows = Array.prototype.map.call(all, function (r, i) {
+        return r.classList.contains("lit") ? i : -1;
+      }).filter(function (i) { return i >= 0; });
+
+      /* Курсор уходит с холста. Событие настоящее: Chart.js слушает его сам, и
+         проверять надо именно связку двух обработчиков. */
+      chart.canvas.dispatchEvent(new win.MouseEvent("mouseout",
+        {bubbles: true, view: win}));
+      out.afterOutHot = chart.$hot;
+      out.afterOutColours = colours();
+      out.afterOutLitRows = Array.prototype.map.call(all, function (r, i) {
+        return r.classList.contains("lit") ? i : -1;
+      }).filter(function (i) { return i >= 0; });
+
+      document.title = "RESULT:" + encodeURIComponent(JSON.stringify(out));
+    } catch (e) {
+      document.title = "FAILED:" + encodeURIComponent(String((e && e.stack) || e));
+    }
+  }, 900);
 };
 </script>
 </body></html>
@@ -264,6 +373,12 @@ class ChartsInBrowserTest(unittest.TestCase):
         @app_module.app.get("/__interact", response_class=HTMLResponse)
         def interact(target: str, chart: str):        # noqa: ANN001
             return INTERACT % {"path": target, "chart": chart}
+
+        @app_module.app.get("/__linked", response_class=HTMLResponse)
+        def linked(target: str, chart: str, table: str,   # noqa: ANN001
+                   kind: str):
+            return LINKED % {"path": target, "chart": chart, "table": table,
+                             "kind": kind}
 
         # Порт занимается заранее и передаётся серверу готовым сокетом: выбрать
         # свободный порт и потом отдать его строкой — значит оставить зазор,
@@ -396,7 +511,10 @@ class ChartsInBrowserTest(unittest.TestCase):
         self.assertGreater(out["datasets"], 1, "рядов меньше двух, выделять нечего")
         self.assertEqual(out["legendBoxes"], out["datasets"],
                          "в легенде не все ряды")
-        self.assertEqual(out["isolated"], 1, "клик по легенде не выделил ряд")
+        self.assertIsNone(out["hotCleared"],
+                          "подсветка наведением не снялась уходом курсора")
+        self.assertEqual(out["isolated"], "dataset:1",
+                         "клик по легенде не выделил ряд")
 
         chosen = out["colorsAfter"][1]
         self.assertEqual(chosen, out["colorsBefore"][1],
@@ -414,6 +532,129 @@ class ChartsInBrowserTest(unittest.TestCase):
         self.assertIsNone(out["isolatedAgain"], "повторный клик не снял выделение")
         self.assertEqual(out["colorsRestored"], out["colorsBefore"],
                          "цвета не вернулись")
+
+    def linked(self, path, chart_id, table_id, kind):
+        """Измерения связи «строка ↔ ряд» — из живого браузера."""
+        target = f"http://127.0.0.1:{self.port}{path}"
+        probe = (f"http://127.0.0.1:{self.port}/__linked"
+                 f"?target={urllib.parse.quote(target, safe='')}"
+                 f"&chart={urllib.parse.quote(chart_id, safe='')}"
+                 f"&table={urllib.parse.quote(table_id, safe='')}"
+                 f"&kind={kind}")
+        dom = subprocess.run(
+            [self.chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+             "--window-size=1280,900", "--virtual-time-budget=15000",
+             "--dump-dom", probe],
+            capture_output=True, text=True, timeout=120).stdout
+        broken = re.search(r"<title>FAILED:([^<]*)</title>", dom)
+        if broken:
+            self.fail(f"{path}: пробник упал — "
+                      f"{urllib.parse.unquote(broken.group(1))}")
+        found = re.search(r"<title>RESULT:([^<]*)</title>", dom)
+        self.assertIsNotNone(found, f"{path}: пробник не дошёл до результата")
+        return json.loads(urllib.parse.unquote(found.group(1)))
+
+    def assert_link_works(self, out, path, kind):
+        """Общее для всех страниц: связь есть, наведение снимается, клик держит."""
+        self.assertGreater(out["rowsLinked"], 1, f"{path}: связанных строк нет")
+        self.assertTrue(out["everyLinkedIsMarked"],
+                        f"{path}: связанная строка не помечена классом")
+        self.assertTrue(out["unlinkedAreNotMarked"],
+                        f"{path}: помечена строка, которой на графике нет")
+
+        self.assertEqual(out["hot"], f"{kind}:2",
+                         f"{path}: наведение на строку не нашло свой ряд")
+        self.assertTrue(out["hotRowLit"], f"{path}: строка не подсветилась")
+        self.assertNotEqual(out["hotColours"], out["baseColours"],
+                            f"{path}: наведение ничего не изменило на графике")
+
+        # Уход курсора возвращает ВСЁ как было. Это тот самый случай, который
+        # разметка проверить не может: снимок цветов снимался по признаку
+        # «рамка не задана», у столбиковых наборов она не задана никогда, и
+        # снимок затирался приглушёнными цветами — вернуть было некуда.
+        self.assertIsNone(out["afterLeaveHot"], f"{path}: наведение залипло")
+        self.assertEqual(out["afterLeaveColours"], out["baseColours"],
+                         f"{path}: цвета не вернулись после ухода курсора")
+        self.assertEqual(out["afterLeaveBorders"], out["baseBorders"],
+                         f"{path}: рамки не вернулись после ухода курсора")
+        self.assertFalse(out["afterLeaveRowLit"],
+                         f"{path}: подсветка строки залипла")
+
+        self.assertEqual(out["pin"], f"{kind}:2", f"{path}: клик не закрепил ряд")
+        self.assertTrue(out["pinnedRow"], f"{path}: строка не помечена нажатой")
+        self.assertNotEqual(out["pinColours"], out["baseColours"])
+        self.assertIsNone(out["pinAfterSecond"],
+                          f"{path}: повторный клик не снял выделение")
+        self.assertEqual(out["afterUnpinColours"], out["baseColours"],
+                         f"{path}: повторный клик не вернул цвета")
+
+    def test_prices_table_row_is_linked_to_its_line(self):
+        """Строка 8.5 — это товар, и товару отвечает целая линия.
+
+        Самый естественный жест: увидел строку, хочешь найти её линию. На
+        графике восемь линий, в таблице двадцать рядов — связаны только те, у
+        кого пара есть.
+        """
+        out = self.linked("/prices", "prices-chart", "prices-table", "dataset")
+        self.assertEqual(out["rowsLinked"], out["datasets"],
+                         "связанных строк и линий разное число")
+        self.assertGreater(out["rowsTotal"], out["rowsLinked"],
+                           "в таблице не осталось строк без линии — проверка "
+                           "перестала стеречь разметку лишних")
+        self.assert_link_works(out, "/prices", "dataset")
+        # Выделяется ИМЕННО своя линия: её цвет остался, соседние приглушены.
+        self.assertEqual(out["hotBorders"][2], out["baseBorders"][2])
+        self.assertNotEqual(out["hotBorders"][0], out["baseBorders"][0])
+
+    def test_prices_hovering_a_line_lights_its_row(self):
+        """Обратный ход: наведение на линию подсвечивает строку таблицы."""
+        out = self.linked("/prices", "prices-chart", "prices-table", "dataset")
+        self.assertEqual(out["reverseHot"], "dataset:4")
+        self.assertEqual(out["reverseLitRows"], [4],
+                         "подсветилась не та строка или не одна")
+
+    def test_leaving_the_chart_clears_the_highlight(self):
+        """Курсор ушёл с холста — подсветка снялась.
+
+        Своими силами Chart.js этого не делает: onHover он зовёт, только пока
+        точка внутри области графика. Хуже того, наша же перерисовка возвращала
+        подсветку обратно — `update()` переигрывает последнее событие. Без обоих
+        лекарств картинка залипает приглушённой вокруг линии, на которую человек
+        смотрел последней, и выглядит это как поломка страницы.
+        """
+        out = self.linked("/prices", "prices-chart", "prices-table", "dataset")
+        self.assertEqual(out["reverseHot"], "dataset:4",
+                         "перед проверкой ухода подсветка не была включена")
+        self.assertIsNone(out["afterOutHot"], "подсветка залипла после ухода")
+        self.assertEqual(out["afterOutColours"], out["baseColours"],
+                         "цвета не вернулись после ухода курсора с холста")
+        self.assertEqual(out["afterOutLitRows"], [],
+                         "строка осталась подсвеченной после ухода курсора")
+
+    def test_venues_row_lights_a_column_not_a_series(self):
+        """Строка 8.6 — товар, но ряды здесь МАГАЗИНЫ.
+
+        Приглушить «все ряды кроме первого» значило бы спрятать все магазины
+        кроме одного, то есть ответить на вопрос, которого не задавали.
+        Выделяется столбик товара во всех рядах сразу.
+        """
+        out = self.linked("/venues", "venues-chart", "venues-table", "index")
+        self.assertGreater(out["datasets"], 1, "на 8.6 меньше двух магазинов")
+        self.assert_link_works(out, "/venues", "index")
+        for colours in out["hotColours"]:
+            self.assertIsInstance(colours, list,
+                                  "цвет задан рядом целиком, а не по столбикам")
+
+    def test_spending_row_lights_its_bar(self):
+        out = self.linked("/spending?by=group", "spending-chart",
+                          "spending-table", "index")
+        self.assert_link_works(out, "/spending", "index")
+
+    def test_growth_row_lights_its_pair_of_bars(self):
+        out = self.linked("/spending?by=group&growth=true&months=6",
+                          "growth-chart", "growth-table", "index")
+        self.assertEqual(out["datasets"], 2, "было и стало — два ряда")
+        self.assert_link_works(out, "/spending?growth", "index")
 
     def test_prices_chart_is_actually_drawn(self):
         self.assert_drawn("/prices", "prices-chart")
@@ -508,6 +749,30 @@ class ChartMarkupTest(unittest.TestCase):
             "legend: legendOptions", script,
             "легенда собирается мимо legendOptions, и обработчик к ней не "
             "прикреплён")
+
+    def test_tables_and_charts_are_wired_together(self):
+        """Дешёвая стража связи: у каждого графика есть своя таблица.
+
+        Браузерный класс проверяет поведение, эта проверка — что связь вообще
+        объявлена. Пара «график → таблица» задаётся в двух местах сразу: id в
+        шаблоне и вызов в charts.js, и разойтись они могут молча.
+        """
+        script = self.read("web/static/charts.js")
+        pairs = {"prices-chart": ("prices-table", "DATASET"),
+                 "venues-chart": ("venues-table", "INDEX"),
+                 "spending-chart": ("spending-table", "INDEX"),
+                 "growth-chart": ("growth-table", "INDEX")}
+        for chart, (table, kind) in pairs.items():
+            self.assertRegex(
+                script, rf'linkTable\([^,]+, "{table}", {kind}\)',
+                f"{chart}: таблица {table} не связана с графиком как {kind}")
+
+        markup = "".join(text for _name, text in self.templates())
+        for table in (t for t, _k in pairs.values()):
+            self.assertIn(f'id="{table}"', markup,
+                          f"в шаблонах нет таблицы {table}, а код её связывает")
+        self.assertIn("data-series", markup,
+                      "строки таблиц не размечены — связывать нечего")
 
     def test_every_canvas_is_known_to_the_drawing_code(self):
         """Холст без кода отрисовки — пустое место на странице."""

@@ -121,3 +121,14 @@ pre.code { background: var(--bg); border: 1px solid var(--line); border-radius: 
 tr.dim td { color: var(--muted); }
 tr.dim td.w { font-weight: 400; }
 @media (max-width: 900px) { .variants { grid-template-columns: 1fr; } }
+
+/* Строка таблицы, у которой на графике есть пара. Подчёркивание пунктиром —
+   единственная постоянная пометка: она говорит «здесь есть что нажать» и не
+   спорит с цветными колонками роста и падения. Строки без пары не размечены
+   вовсе: кликать по тому, что ничего не выделит, — молчаливый отказ. */
+tr.linked td.w { text-decoration: underline dotted var(--line);
+  text-underline-offset: 3px; cursor: pointer; }
+tr.linked:hover td { background: var(--chip); }
+tr.lit td { background: var(--chip); }
+tr.pinned td { background: var(--chip); box-shadow: inset 2px 0 0 var(--accent); }
+tr.pinned td.w { text-decoration-color: var(--accent); }

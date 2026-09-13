@@ -25,18 +25,22 @@
 <section class="card">
   <h2>Как менялась цена</h2>
   <div class="chart"><canvas id="prices-chart"></canvas></div>
-  <p class="muted">На графике первые {{ chart|length }} рядов таблицы. Единицы у
-    рядов разные (₽/кг, ₽/л, ₽/шт) — числа из разных рядов не складываются.</p>
+  <p class="muted">На графике первые {{ chart|length }} рядов таблицы — они в
+    ней подчёркнуты: наведите на строку, чтобы найти её линию, нажмите, чтобы
+    оставить выделенной. Единицы у рядов разные (₽/кг, ₽/л, ₽/шт) — числа из
+    разных рядов не складываются.</p>
   <script id="prices-data" type="application/json">{{ chart|tojson }}</script>
 </section>
 
 <section class="card">
-  <table>
+  <table id="prices-table">
     <thead><tr><th>товар</th><th class="n">было</th><th class="n">стало</th>
       <th class="n">изменение</th><th class="n">%</th><th class="n">годы</th></tr></thead>
     <tbody>
     {% for t in trends %}
-      <tr>
+      {# Размечаются только строки, у которых на графике есть линия: кликать по
+         строке, которая ничего не выделит, — молчаливый отказ. #}
+      <tr {% if loop.index0 < chart|length %}data-series="{{ loop.index0 }}"{% endif %}>
         <td class="w">{{ t.key.label }}</td>
         <td class="n">{{ t.first.median|money }}</td>
         <td class="n">{{ t.last.median|money }}</td>

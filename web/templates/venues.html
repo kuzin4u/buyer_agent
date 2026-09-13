@@ -71,14 +71,17 @@
     <h2>Разрыв цены между магазинами</h2>
     <div class="chart"><canvas id="venues-chart"></canvas></div>
     <script id="venues-data" type="application/json">{{ chart|tojson }}</script>
+    <p class="muted">На графике первые {{ chart|length }} товаров таблицы — они в
+      ней подчёркнуты. Наведите на строку, чтобы найти её столбики; ряды здесь —
+      магазины, и выделяется товар целиком, а не один магазин.</p>
   </section>
   <section class="card">
-    <table>
+    <table id="venues-table">
       <thead><tr><th>товар</th><th class="n">разрыв</th><th class="n">%</th>
         <th class="n">возраст</th><th>дешевле … дороже</th></tr></thead>
       <tbody>
       {% for c in rows %}
-        <tr>
+        <tr {% if loop.index0 < chart|length %}data-series="{{ loop.index0 }}"{% endif %}>
           <td class="w">{{ c.key.label }}</td>
           <td class="n">{{ c.spread_abs|money }}</td>
           <td class="n">{{ c.spread_pct|signed_pct }}</td>
