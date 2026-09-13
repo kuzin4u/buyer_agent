@@ -59,6 +59,21 @@ CREATE TABLE IF NOT EXISTS sent (
     key     TEXT PRIMARY KEY,       -- что именно отправлено
     sent_at TEXT NOT NULL
 );
+-- Принятые выгрузки ФНС. Сами чеки здесь НЕ лежат (Р-4): сырые файлы в
+-- data/inbox/, корпус собирается из них прогоном. Здесь — реестр приёма и
+-- ЭФФЕКТ каждой выгрузки: сколько чеков она принесла нового. Эффект
+-- пересчитать задним числом нельзя, он зависит от того, что уже было в корпусе
+-- на тот момент, — поэтому меряется при приёме и хранится (Р-24).
+CREATE TABLE IF NOT EXISTS exports (
+    sha256      TEXT PRIMARY KEY,   -- отпечаток файла: он же защита от повтора
+    name        TEXT NOT NULL,      -- имя в приёмнике
+    received_at TEXT NOT NULL,
+    receipts    INTEGER NOT NULL,   -- чеков в файле
+    added       INTEGER NOT NULL,   -- из них оказались новыми
+    dropped     TEXT NOT NULL,      -- JSON: отброшено по видам тождества
+    span_from   TEXT,
+    span_to     TEXT
+);
 """
 
 
@@ -318,6 +333,37 @@ class Notifications(RulesStore):
                 continue
             self.mark_sent(key)
             out.append(payload)
+        return out
+
+
+    # --- реестр принятых выгрузок (Р-4: чеки в базу не кладутся) ---
+
+    def record_export(self, sha256, name, receipts, added, dropped, span=None):
+        """Запомнить приём выгрузки и ЗАМЕРЕННЫЙ эффект.
+
+        `added` не выводится из файла: он зависит от того, что уже лежало в
+        корпусе, и после следующей выгрузки станет неповторим. Меряется один
+        раз, при приёме, — как эффект правила словаря (Р-24).
+        """
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO exports (sha256, name, received_at, "
+                "receipts, added, dropped, span_from, span_to) "
+                "VALUES (?, ?, datetime('now'), ?, ?, ?, ?, ?)",
+                (sha256, name, int(receipts), int(added),
+                 json.dumps(dropped, ensure_ascii=False),
+                 (span or (None, None))[0], (span or (None, None))[1]))
+
+    def accepted_exports(self):
+        """Принятые выгрузки, свежая первой."""
+        out = []
+        for row in self.conn.execute(
+                "SELECT sha256, name, received_at, receipts, added, dropped, "
+                "span_from, span_to FROM exports "
+                "ORDER BY received_at DESC, name DESC"):
+            item = dict(row)
+            item["dropped"] = json.loads(item["dropped"] or "{}")
+            out.append(item)
         return out
 
 

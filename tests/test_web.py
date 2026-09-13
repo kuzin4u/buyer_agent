@@ -9,8 +9,10 @@
 должно проверяться на одной стандартной библиотеке (DECISIONS Р-6).
 """
 
+import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -19,6 +21,8 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
 import fixture  # noqa: E402
+
+from agent import intake as I  # noqa: E402
 
 try:
     from fastapi.testclient import TestClient
@@ -374,6 +378,129 @@ class PlanPageTest(unittest.TestCase):
                                    follow_redirects=False)
         self.assertEqual(response.status_code, 303)
         self.assertIn("/plan", response.headers["location"])
+
+
+@fixture.slow
+@unittest.skipUnless(WEB, REASON)
+class IntakePageTest(unittest.TestCase):
+    """Приём выгрузки через браузер: сохранить, склеить, померить, пересобрать.
+
+    Медленный намеренно: приём обязан пересобрать историю конвейером, иначе
+    профиль останется посчитанным по прежним чекам и соврёт (Р-4, Session).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import web.app as app_module
+        cls.module = app_module
+        cls.client = TestClient(app_module.app)
+        from agent.adapters.receipts_fns import load_dataset
+        from agent.config import dataset_path
+        cls.dataset = load_dataset(dataset_path(BASE))
+
+    def setUp(self):
+        """Свой приёмник и своя база на каждый тест.
+
+        Приём меняет корпус, а корпус — это состояние: оставь его общим на
+        класс, и тесты начнут зависеть от порядка. Здесь это стоит пересборки
+        истории на каждый тест, потому класс и помечен медленным.
+        """
+        self.dir = tempfile.mkdtemp()
+        os.environ["BUYER_AGENT_DB"] = os.path.join(self.dir, "state.db")
+        os.environ["BUYER_AGENT_INBOX"] = os.path.join(self.dir, "inbox")
+        self.module.reset_state()
+
+    def tearDown(self):
+        self.module.reset_state()
+        os.environ.pop("BUYER_AGENT_DB", None)
+        os.environ.pop("BUYER_AGENT_INBOX", None)
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def upload(self, bodies, name="vygruzka.json"):
+        blob = json.dumps(bodies, ensure_ascii=False).encode("utf-8")
+        response = self.client.post(
+            "/intake",
+            files={"export": (name, blob, "application/json")})
+        self.assertEqual(response.status_code, 200)
+        return flat(response.text)
+
+    def fresh(self, count, start=1):
+        """Чеки, которых в эталоне нет: новые даты, суммы и реквизиты.
+
+        Дата считается сложением дней, а не подстановкой числа в шаблон: «41
+        января» разбор принимает молча, а конвейер падает на построении профиля.
+        """
+        import datetime
+        from test_loader import as_fns
+        first = datetime.date(2027, 1, 1) + datetime.timedelta(days=start)
+        out = []
+        for i in range(count):
+            body = as_fns(self.dataset[0], fn="9287440300123456",
+                          fd=7000 + start + i, fpd=8000 + start + i)
+            day = first + datetime.timedelta(days=i)
+            receipt = body["ticket"]["document"]["receipt"]
+            receipt["dateTime"] = f"{day.isoformat()}T10:00:00"
+            receipt["totalSum"] = 90000 + start + i
+            out.append(body)
+        return out
+
+    def test_upload_is_stored_merged_and_measured(self):
+        body = self.upload(self.fresh(3, start=1))
+        self.assertIn("Принято:", body)
+        self.assertIn("Нового в корпусе: <b>3</b>", body)
+
+        # Файл лёг в приёмник как пришёл, а не как разобрался.
+        stored = I.exports(base=BASE)
+        self.assertEqual(len(stored), 1)
+        self.assertTrue(stored[0].endswith(".json"))
+
+        # Эффект записан и переживает перезагрузку страницы: пересчитать его
+        # потом нельзя, он зависит от того, что уже лежало (Р-24).
+        again = flat(self.client.get("/intake").text)
+        self.assertIn("Что уже принято", again)
+        _session, store, _parser = self.module.state()
+        rows = store.accepted_exports()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["added"], 3)
+        self.assertEqual(rows[0]["receipts"], 3)
+
+    def test_the_same_file_twice_is_refused_with_a_reason(self):
+        bodies = self.fresh(2, start=20)
+        self.upload(bodies)
+        body = self.upload(bodies)
+        self.assertIn("Выгрузка не принята", body)
+        self.assertIn("уже принята", body)
+
+    def test_rubbish_is_refused_and_does_not_reach_the_inbox(self):
+        before = len(I.exports(base=BASE))
+        response = self.client.post(
+            "/intake", files={"export": ("junk.json", b"not json",
+                                         "application/json")})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("не разобрать", flat(response.text))
+        self.assertEqual(len(I.exports(base=BASE)), before)
+
+    def test_new_receipts_reach_the_answers(self):
+        """Принятое обязано дойти до чисел, а не только до страницы приёма."""
+        _session, _store, _parser = self.module.state()
+        before = self.module.state()[0].history.span()[1]
+        self.upload(self.fresh(2, start=40))
+        after = self.module.state()[0].history.span()[1]
+        self.assertGreater(after, before,
+                           "история не пересобралась: профиль остался по старым "
+                           "чекам")
+
+    def test_the_page_separates_facts_from_the_guess(self):
+        """Дубль по реквизитам и дубль по дате с суммой — разные утверждения."""
+        from test_loader import as_fns
+        bodies = []
+        for i, receipt in enumerate(self.dataset[:4]):
+            body = as_fns(receipt, fn="928744", fd=600 + i, fpd=600 + i)
+            body["ticket"]["document"]["receipt"]["user"] = "СЫРОЕ ИМЯ ООО"
+            bodies.append(body)
+        body = self.upload(bodies, name="overlap.json")
+        self.assertIn("это <b>догадка</b>", body)
+        self.assertIn("по фискальным реквизитам — это факт", body)
 
 
 @unittest.skipUnless(WEB, REASON)

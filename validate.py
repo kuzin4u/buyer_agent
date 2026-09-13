@@ -24,6 +24,10 @@ from agent.adapters.receipts_fns.report import render
 
 def main():
     include_candidates = os.environ.get("INCLUDE_CANDIDATES") == "1"
+    # ЭТАЛОННЫЙ ДАТАСЕТ, а не рабочий корпус, и это принципиально: отсюда
+    # берутся контрольные цифры docs/BASELINE.txt. Корпус растёт принятыми
+    # выгрузками (agent/intake.py), и покрытие по нему меняется на законных
+    # основаниях — сравнивать с эталоном можно только эталон.
     receipts = load_receipts(dataset_path())
     run = Pipeline(Config.load(), include_candidates=include_candidates).run(receipts)
     print(render(run))

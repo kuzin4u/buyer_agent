@@ -27,6 +27,7 @@ from agent.history import PRICE_WINDOW_MONTHS
 from agent.settings import Settings
 from agent.adapters.receipts_fns import Pipeline, load_receipts
 from agent.adapters.receipts_fns.pipeline import to_history
+from agent import intake as I
 from agent import matching as M
 from agent import profile as P
 
@@ -55,7 +56,10 @@ def _load(data, candidates):
     settings = Settings.load()
     if candidates:
         settings.include_candidates = True
-    receipts = load_receipts(data or dataset_path())
+    # Рабочий корпус: эталонный датасет плюс принятые выгрузки. Явный --data
+    # перекрывает и то и другое — он для разбора чужого файла, а не для работы.
+    receipts = (load_receipts(data) if data
+                else list(I.build().receipts))
     run = Pipeline(Config.load(),
                    include_candidates=settings.include_candidates).run(receipts)
     history = to_history(run)

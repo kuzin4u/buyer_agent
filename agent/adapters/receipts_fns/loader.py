@@ -100,10 +100,8 @@ class Receipt:
         return (FISCAL, fiscal) if fiscal else (DIGEST, self.digest)
 
 
-def load_dataset(path):
-    """`data/receipts.json` — суммы уже в рублях."""
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
+def parse_dataset(raw):
+    """Разобранный JSON пакетного датасета → чеки. Суммы уже в рублях."""
     return [
         Receipt(
             dt=r["dt"],
@@ -175,11 +173,26 @@ def parse_fns_export(raw):
     return out
 
 
+def load_dataset(path):
+    """`data/receipts.json` — суммы уже в рублях."""
+    with open(path, encoding="utf-8") as f:
+        return parse_dataset(json.load(f))
+
+
+def parse_any(raw):
+    """Разобранный JSON → чеки. Формат определяется по содержимому.
+
+    Отделено от чтения файла намеренно: приём выгрузок держит в руках байты, а
+    не путь, и разбирать их обязан ровно тем же кодом, что и файл на диске.
+    Иначе у одного формата появятся два разбора, и разойдутся они молча.
+    """
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "items" in raw[0] \
+            and raw[0]["items"] and "n" in raw[0]["items"][0]:
+        return parse_dataset(raw)
+    return parse_fns_export(raw)
+
+
 def load_receipts(path):
     """Определяет формат по содержимому: развёрнутый датасет или выгрузка ФНС."""
     with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
-    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "items" in raw[0] \
-            and raw[0]["items"] and "n" in raw[0]["items"][0]:
-        return load_dataset(path)
-    return parse_fns_export(raw)
+        return parse_any(json.load(f))

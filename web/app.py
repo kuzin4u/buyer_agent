@@ -16,12 +16,12 @@ import json
 import os
 import threading
 
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from agent.adapters.receipts_fns import Pipeline, load_receipts
+from agent.adapters.receipts_fns import Pipeline
 from agent.adapters.receipts_fns.pipeline import to_history
 from agent.config import Config, dataset_path
 from agent.history import PRICE_WINDOW_MONTHS
@@ -31,6 +31,7 @@ from agent.core import smart as S
 from agent import export as E
 from agent.profile import for_period
 from agent.store import Notifications
+from agent import intake as I
 from agent import reach as R
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -143,8 +144,12 @@ def load_history(include_candidates=False, base=BASE, store=None):
     """
     brands, categories = store.overlay() if store is not None else ((), ())
     config = Config.load(base).with_rules(brands=brands, categories=categories)
-    receipts = load_receipts(dataset_path(base))
-    run = Pipeline(config, include_candidates=include_candidates).run(receipts)
+    # Оболочка работает по КОРПУСУ, а не по эталонному датасету: эталон заморожен
+    # под BASELINE и тесты, корпус растёт принятыми выгрузками. Пока приёмник
+    # пуст, это один и тот же набор чеков (agent/intake.py).
+    corpus = I.build(base)
+    run = Pipeline(config, include_candidates=include_candidates).run(
+        list(corpus.receipts))
     return to_history(run), run
 
 
@@ -216,6 +221,62 @@ def index(request: Request, q: str = ""):
 @app.get("/profile", name="profile")
 def profile(request: Request):
     return page(request, "profile", run("profile"))
+
+
+# --- приём выгрузок ФНС ---
+
+def _inside(path, base):
+    """Путь покороче, если он внутри проекта, и как есть, если снаружи."""
+    relative = os.path.relpath(path, base)
+    return relative if not relative.startswith("..") else path
+
+
+def intake_context(**extra):
+    """Состояние приёмника: что принято, что из этого вышло, чем живёт корпус."""
+    _session, store, _parser = state()
+    corpus = I.build(BASE)
+    payload = {
+        "corpus": corpus,
+        "accepted": store.accepted_exports(),
+        "dataset": os.path.basename(dataset_path(BASE)),
+        "inbox": _inside(I.inbox_dir(BASE), BASE),
+    }
+    payload.update(extra)
+    return payload
+
+
+@app.get("/intake", name="intake")
+def intake_page(request: Request):
+    return page(request, "intake", intake_context())
+
+
+@app.post("/intake")
+async def intake_upload(request: Request, export: UploadFile = File(...)):
+    """Принять выгрузку: сохранить как пришла, склеить, померить эффект.
+
+    Порядок именно такой. Сначала файл ложится в приёмник байт в байт — он
+    источник, и он переживёт любой будущий разбор. Потом собирается корпус, и
+    только потом считается, сколько чеков выгрузка принесла НОВОГО: это число
+    зависит от того, что уже лежало, и второй раз его не получить (Р-24).
+    """
+    session, store, _parser = state()
+    blob = await export.read()
+    try:
+        saved = I.save_export(blob, base=BASE, filename=export.filename)
+    except I.Rejected as error:
+        return page(request, "intake", intake_context(error=str(error)))
+
+    corpus = I.build(BASE)
+    mine = next((s for s in corpus.sources if s.name == saved.name), None)
+    store.record_export(sha256=saved.sha256, name=saved.name,
+                        receipts=saved.receipts,
+                        added=(mine.added if mine else 0),
+                        dropped=corpus.dropped, span=saved.span)
+    # История пересобирается конвейером: в корпусе другие чеки, и профиль,
+    # посчитанный по старой истории, соврёт (см. Session.reload_history).
+    session.reload_history()
+    return page(request, "intake",
+                intake_context(saved=saved, added=(mine.added if mine else 0)))
 
 
 @app.get("/plan", name="plan")

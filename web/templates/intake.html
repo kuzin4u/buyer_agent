@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Приём выгрузок{% endblock %}
+{% block body %}
+
+<h1>Приём выгрузок <span class="muted">— чеки из «Проверки чеков» ФНС</span></h1>
+
+{% if error %}
+  <section class="card warn-box"><p class="bad"><b>Выгрузка не принята.</b>
+    {{ error }}</p></section>
+{% endif %}
+
+{% if saved %}
+  <section class="card good-inline">
+    <p><b>Принято: {{ saved.name }}</b></p>
+    <p>В файле {{ saved.receipts }}
+      {{ saved.receipts|plural('чек', 'чека', 'чеков') }}{% if saved.span %},
+      период {{ saved.span[0][:10] }} … {{ saved.span[1][:10] }}{% endif %}.
+      Нового в корпусе: <b>{{ added }}</b>
+      {{ added|plural('чек', 'чека', 'чеков') }}.</p>
+    {% if added == 0 %}
+      <p class="muted">Ни одного нового чека — эта выгрузка целиком перекрывается
+        тем, что уже принято. Это нормальный исход: выгружать «всё» проще, чем
+        «новое».</p>
+    {% endif %}
+  </section>
+{% endif %}
+
+<section class="card">
+  <h2>Загрузить выгрузку</h2>
+  <form class="filters" action="/intake" method="post"
+        enctype="multipart/form-data">
+    <input type="file" name="export" accept=".json,application/json" required>
+    <button type="submit">Принять</button>
+  </form>
+  <p class="muted">Файл сохраняется <b>как пришёл</b>, байт в байт, в
+    <code>{{ inbox }}</code>. Корпус собирается из сырых выгрузок заново, поэтому
+    когда разбор названий станет умнее, старые выгрузки станут разобраны лучше —
+    без повторного обращения к ФНС. Обратный порядок необратим: хранить
+    разобранное и выбросить исходник значит потерять всё, чего разбор не понял
+    в тот день.</p>
+</section>
+
+<section class="card">
+  <h2>Корпус</h2>
+  <div class="kpis">
+    <div><b>{{ corpus.kept }}</b><span>чеков в работе</span></div>
+    <div><b>{% if corpus.span %}{{ corpus.span[0][:10] }} … {{ corpus.span[1][:10] }}{% else %}—{% endif %}</b>
+      <span>период</span></div>
+    <div><b>{{ corpus.with_requisites }}</b><span>с фискальными реквизитами</span></div>
+    <div><b>{{ corpus.dropped_total }}</b><span>отброшено как дубли</span></div>
+  </div>
+  <table>
+    <thead><tr><th>источник</th><th class="n">чеков</th><th class="n">вошло</th>
+      <th class="n">отброшено</th></tr></thead>
+    <tbody>
+    {% for source in corpus.sources %}
+      <tr><td class="w">{{ source.name }}
+        {% if source.kind == 'seed' %}<i class="muted">— эталон, заморожен</i>{% endif %}</td>
+        <td class="n">{{ source.seen }}</td>
+        <td class="n">{{ source.added }}</td>
+        <td class="n">{{ source.dropped }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if corpus.dropped_total %}
+    <p class="muted">Отброшено по видам тождества, и виды не равны по силе:
+      <b>{{ corpus.by_requisites }}</b> по фискальным реквизитам — это факт,
+      касса выдала тот же номер документа;
+      <b>{{ corpus.by_content }}</b> по совпадению содержимого целиком — тоже
+      факт, до копейки и до грамма;
+      <b>{{ corpus.by_guess }}</b> по совпадению даты и суммы — а вот это
+      <b>догадка</b>. Она нужна там, где реквизитов нет: эталонный датасет
+      получен преобразованием и их не несёт, а продавец в нём записан иначе, чем
+      в боевой выгрузке. На эталоне пара «дата и сумма» различает все
+      {{ corpus.sources[0].seen }} чеков, поэтому догадка обоснованная — но это
+      всё ещё догадка, и она считается отдельно именно поэтому.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Эталон и корпус разведены</h2>
+  <p><code>{{ dataset }}</code> — <b>эталонный датасет</b>: заморожен, по нему
+    считается <code>docs/BASELINE.txt</code> и на нём стоят тесты.
+    <b>Рабочий корпус</b> — он же плюс принятые выгрузки; по корпусу работают
+    веб и командная строка.</p>
+  <p class="muted">Пока приёмник пуст, корпус совпадает с эталоном чек в чек.
+    Так и задумано: развод ничего не сдвигает сегодня и перестаёт ронять тесты
+    завтра, когда данные начнут приходить. Иначе первая же загрузка сделала бы
+    красным весь набор, и правило «остановиться перед сдвигом контрольных цифр»
+    превратилось бы из защиты в помеху.</p>
+</section>
+
+{% if accepted %}
+  <section class="card">
+    <h2>Что уже принято</h2>
+    <table>
+      <thead><tr><th>файл</th><th>принят</th><th class="n">чеков</th>
+        <th class="n">нового</th><th>период</th></tr></thead>
+      <tbody>
+      {% for row in accepted %}
+        <tr><td class="w">{{ row.name }}</td>
+          <td class="muted">{{ row.received_at }}</td>
+          <td class="n">{{ row.receipts }}</td>
+          <td class="n">{{ row.added }}</td>
+          <td class="muted">{% if row.span_from %}{{ row.span_from[:10] }} …
+            {{ row.span_to[:10] }}{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">«Нового» меряется при приёме и потом не пересчитывается:
+      это число зависит от того, что уже лежало в корпусе в тот момент, и после
+      следующей выгрузки его не получить заново.</p>
+  </section>
+{% endif %}
+
+{% endblock %}
