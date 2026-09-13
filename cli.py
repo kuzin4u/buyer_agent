@@ -5,6 +5,10 @@
     python3 cli.py basket --period week        8.2 корзина «как обычно»
     python3 cli.py basket --budget 2000        8.2 то же под заданную сумму
     python3 cli.py lapsed                      8.4 что давно не покупал
+    python3 cli.py prices                      8.5 динамика цен внутри SKU
+    python3 cli.py venues                      8.6 где что дешевле
+    python3 cli.py venues --basket week        8.6 умная корзина: маршрут экономии
+    python3 cli.py choose                      8.7 выбор магазина
     python3 cli.py spending --by dept          8.8 контроль трат
     python3 cli.py spending --growth --by group   где траты растут
 
@@ -23,6 +27,8 @@ from agent.adapters.receipts_fns.pipeline import to_history
 from agent import profile as P
 
 WIDTH = 64
+#: как показывать базовую единицу цены; складывать числа разных единиц нельзя
+UNIT = {"kg": "₽/кг", "l": "₽/л", "pcs": "₽/шт"}
 
 
 def money(value):
@@ -130,6 +136,101 @@ def cmd_lapsed(args):
         print("  Показаны и оставленные привычки (--all); без флага — только к докупке.")
 
 
+def cmd_prices(args):
+    history, _settings, prof = load(args)
+    kw = {"include_blended": bool(args.blended),
+          "include_mode_changed": bool(args.blended)}
+    trends = (P.dynamics(history, **kw) if args.all else
+              P.prices.for_profile(prof, history, **kw))
+    head("8.5 ДИНАМИКА ЦЕН — внутри SKU, приоритет абсолютному рублю")
+    if not trends:
+        print("  Сравнивать нечего: ни у одного ключа нет двух годов "
+              "с тремя наблюдениями.")
+        return
+    s = P.prices.summary(trends)          # сводка по ВСЕМУ ряду, а не по показанному
+    trends = trends[:args.limit] if args.limit else trends
+    print(f"  рядов {s['keys']} за {s['span'][0]}–{s['span'][1]}: "
+          f"подорожало {s['up']}, подешевело {s['down']}, "
+          f"типичное изменение {s['median_pct']:+.0%}\n")
+    print(f"    {'товар':32}{'было':>9}{'стало':>9}{'изм.':>9}{'%':>7}  годы")
+    for t in trends:
+        print(f"    {t.key.label[:32]:32}{t.first.median:9.0f}{t.last.median:9.0f}"
+              f"{t.delta_abs:+9.0f}{t.delta_pct:+7.0%}  "
+              f"{t.first.year}→{t.last.year} {UNIT[t.unit]}")
+    if args.blended:
+        print(f"\n  Показаны и смешанные ключи ({s['blended']} из {s['keys']}) —")
+        print("  внутри такого ключа лежат разные товары, и «рост» там может")
+        print("  оказаться сменой марки, а не подорожанием.")
+    else:
+        print("\n  Исключены ключи с нераспознанной маркой (внутри такого ключа")
+        print("  лежат разные товары) и ряды, где товар стали продавать иначе —")
+        print("  на вес вместо штук. Показать их: --blended.")
+
+
+def cmd_venues(args):
+    history, _settings, prof = load(args)
+    if args.basket:
+        b = P.for_period(prof, args.basket)
+        route = P.smart_basket(history, b)
+        head(f"8.6 УМНАЯ КОРЗИНА — корзина на {args.basket}")
+        if not route.lines:
+            print("  Ни одну строку корзины не удалось сравнить между магазинами.")
+            return
+        print(f"  в одном месте ({route.best_single}): {money(route.baseline_total)} ₽")
+        print(f"  врозь по {len(route.venues)} магазинам: {money(route.split_total)} ₽")
+        print(f"  экономия {money(route.saving_abs)} ₽ ({route.saving_pct:.0%})\n")
+        print(f"    {'товар':32}{'магазин':14}{'цена':>9}{'экономия':>10}")
+        for line in route.lines:
+            print(f"    {line.key.label[:32]:32}{line.venue[:14]:14}"
+                  f"{line.unit_price:9.0f}{signed(line.saving):>10}")
+        print(f"\n  Посчитано по {len(route.lines)} строкам из "
+              f"{len(route.lines) + len(route.skipped)} — это {route.covered:.0%} "
+              f"корзины.")
+        print("  Остальные строки сравнить не с чем: цена известна не у двух")
+        print("  магазинов сразу. В экономию они не засчитаны.")
+        return
+
+    head("8.6 ГДЕ ЧТО ДЕШЕВЛЕ — медиана цены по магазинам")
+    rows = P.compare(history, limit=args.limit)
+    if not rows:
+        print("  Сравнивать нечего.")
+        return
+    print(f"    {'товар':30}{'разрыв':>8}{'%':>7}  дешевле … дороже")
+    for c in rows:
+        line = " | ".join(f"{p.venue} {p.median:.0f}" for p in c.prices)
+        print(f"    {c.key.label[:30]:30}{c.spread_abs:8.0f}{c.spread_pct:+7.0%}  "
+              f"{line[:60]}")
+    print(f"\n  Сравнимых товаров {len(P.compare(history))}: нужно не меньше трёх")
+    print("  покупок в каждом из не менее чем двух магазинов (Р-2).")
+
+
+def cmd_choose(args):
+    history, settings, _prof = load(args)
+    head("8.7 ВЫБОР МАГАЗИНА — цена из чеков, качество и обстановка от вас")
+    scores = P.rank(history, settings)
+    if not scores:
+        print("  Данных не хватает: ни у одного магазина нет пяти сравнимых товаров.")
+        return
+    print(f"    {'магазин':16}{'итог':>7}{'цена':>8}{'индекс':>9}"
+          f"{'кач-во':>8}{'обст.':>7}{'товаров':>9}")
+    for s in scores:
+        q = "—" if s.quality is None else f"{s.quality}★"
+        a_ = "—" if s.ambience is None else f"{s.ambience}★"
+        print(f"    {s.venue[:16]:16}{s.total:7.2f}{s.price_score:8.2f}"
+              f"{s.price_index:9.2f}{q:>8}{a_:>7}{s.keys:9}")
+    basis = scores[0].basis
+    print(f"\n  Итог сложен из: {', '.join(basis)}.")
+    if basis == ("цена",):
+        if any(s.rated for s in scores):
+            print("  Оценки есть не у всех магазинов, поэтому в итог они не вошли:")
+            print("  иначе пять звёзд ОПУСКАЛИ бы оценённый магазин ниже")
+            print("  неоценённого, у которого в итоге осталась бы одна цена.")
+        else:
+            print("  Оценок качества и обстановки нет. Этих данных в чеках не")
+            print("  бывает: их ставит человек (SPEC §8.7).")
+    print("  Индекс 0,90 значит «в среднем на 10% дешевле остальных».")
+
+
 def cmd_spending(args):
     history, _settings, _prof = load(args)
     summary = P.summary(history)
@@ -174,6 +275,22 @@ def main(argv=None):
     p.add_argument("--asof", help="дата отсчёта; по умолчанию конец истории")
     p.add_argument("--all", action="store_true", help="включая оставленные привычки")
     p.set_defaults(fn=cmd_lapsed)
+
+    p = sub.add_parser("prices", help="8.5 динамика цен")
+    p.add_argument("--all", action="store_true",
+                   help="по всем товарам, а не только по постоянной корзине")
+    p.add_argument("--blended", action="store_true",
+                   help="включая ключи с нераспознанной маркой")
+    p.add_argument("--limit", type=int, default=20, help="сколько строк показать")
+    p.set_defaults(fn=cmd_prices)
+
+    p = sub.add_parser("venues", help="8.6 сравнение магазинов")
+    p.add_argument("--basket", choices=("day", "week", "month"),
+                   help="развести корзину по магазинам и показать экономию")
+    p.add_argument("--limit", type=int, default=20, help="сколько строк показать")
+    p.set_defaults(fn=cmd_venues)
+
+    sub.add_parser("choose", help="8.7 выбор магазина").set_defaults(fn=cmd_choose)
 
     p = sub.add_parser("spending", help="8.8 контроль трат")
     p.add_argument("--by", default="year",

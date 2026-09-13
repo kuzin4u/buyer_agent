@@ -7,7 +7,7 @@
 
 ```bash
 python3 validate.py                        # покрытие по датасету
-python3 -m unittest discover -s tests      # 78 тестов, эталон и функции ядра
+python3 -m unittest discover -s tests      # 158 тестов, эталон и функции ядра
 ```
 
 Функции ядра А на уровне группы — уже работают:
@@ -17,6 +17,10 @@ python3 cli.py profile                     # 8.1 профиль предпочт
 python3 cli.py basket --period week        # 8.2 корзина «как обычно»
 python3 cli.py basket --budget 2000        # 8.2 то же под заданную сумму
 python3 cli.py lapsed                      # 8.4 что давно не покупал
+python3 cli.py prices                      # 8.5 динамика цен внутри SKU
+python3 cli.py venues                      # 8.6 где что дешевле
+python3 cli.py venues --basket week        # 8.6 умная корзина: маршрут экономии
+python3 cli.py choose                      # 8.7 выбор магазина
 python3 cli.py spending --by dept          # 8.8 контроль трат
 python3 cli.py spending --growth --by group   # где траты растут
 ```
@@ -34,7 +38,7 @@ CLI — временная оболочка: интерфейс будет ве�
 ```
 SPEC.md                       ← главный документ, читать целиком
 validate.py                   проверка конфигов на данных (тонкий запуск над agent/)
-cli.py                        временная оболочка: 8.1, 8.2, 8.4, 8.8
+cli.py                        временная оболочка: 8.1–8.2, 8.4–8.8
 agent/
   history.py                  нейтральная модель: Event для цен, Outlay для трат
   config.py                   загрузка конфигов, отпечаток для кэша
@@ -44,16 +48,18 @@ agent/
     build.py                  8.1 профиль предпочтений
     basket.py                 8.2 корзина «как обычно»
     lapsed.py                 8.4 что давно не покупал
+    prices.py                 8.5 динамика цен внутри SKU
+    venues.py                 8.6 сравнение магазинов, 8.7 выбор магазина
     spending.py               8.8 контроль трат
   matching/                   подбор, горизонт выводится из режима позиции (С4)
   core/                       оболочка: чат, кнопки, прокси модели (С5, С7)
   export.py                   замороженная схема экспорта профиля (§9)
-tests/                        78 тестов; fixture.py — общий прогон на весь запуск
+tests/                        158 тестов; fixture.py — общий прогон на весь запуск
 config/
   shops.json                  нормализация продавцов, 3 яруса, правило для безымянных
   normalization.json          гомоглифы, исключения, извлечение фасовки, агрегация
-  categories.json             39 товарных групп
-  brands.json                 30 кассовых сокращений брендов
+  categories.json             45 товарных групп
+  brands.json                 76 кассовых сокращений брендов
 data/
   receipts.json               1744 чека, 2017–2026, 19 056 позиций
 docs/

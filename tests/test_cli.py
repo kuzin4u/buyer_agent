@@ -61,6 +61,37 @@ class CliTest(unittest.TestCase):
         self.assertIn("ГДЕ ТРАТЫ РАСТУТ", out)
         self.assertIn("§8.5", out)
 
+    def test_prices(self):
+        out = run("prices", "--limit", "5")
+        self.assertIn("8.5 ДИНАМИКА ЦЕН", out)
+        self.assertIn("₽/кг", out)
+        # оговорка про исключённые ряды обязана быть: без неё цифра выглядит
+        # полнее, чем она есть
+        self.assertIn("нераспознанной маркой", out)
+
+    def test_prices_blended_says_what_it_shows(self):
+        out = run("prices", "--all", "--blended", "--limit", "5")
+        self.assertIn("смешанные ключи", out)
+
+    def test_venues_comparison(self):
+        out = run("venues", "--limit", "5")
+        self.assertIn("8.6 ГДЕ ЧТО ДЕШЕВЛЕ", out)
+        self.assertIn("Р-2", out)
+
+    def test_venues_smart_basket_reports_coverage(self):
+        """Экономия без доли разведённой корзины — половина правды."""
+        out = run("venues", "--basket", "week")
+        self.assertIn("8.6 УМНАЯ КОРЗИНА", out)
+        self.assertIn("экономия", out)
+        self.assertIn("корзины", out)
+        self.assertIn("В экономию они не засчитаны", out)
+
+    def test_choose_says_what_the_total_is_made_of(self):
+        out = run("choose")
+        self.assertIn("8.7 ВЫБОР МАГАЗИНА", out)
+        self.assertIn("Итог сложен из: цена", out)
+        self.assertIn("§8.7", out)
+
     def test_bad_dimension_is_rejected_by_the_parser(self):
         with self.assertRaises(SystemExit):
             run("spending", "--by", "колхоз")

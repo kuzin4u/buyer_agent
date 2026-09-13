@@ -13,8 +13,15 @@ from .basket import Basket, BasketLine, for_period, for_average_txn
 from .lapsed import Lapse, lapsed, to_restock
 from .spending import (Bucket, Trend, breakdown, growth, monthly_series,
                        summary)
+from . import prices, venues
+from .prices import PriceTrend, YearPrice, dynamics, is_blended
+from .venues import (KeyComparison, Route, RouteLine, VenuePrice, VenueScore,
+                     compare, price_index, rank, smart_basket)
 
 __all__ = ["History", "Profile", "GroupStat", "VenueStat", "build",
            "Basket", "BasketLine", "for_period", "for_average_txn",
            "Lapse", "lapsed", "to_restock",
-           "Bucket", "Trend", "breakdown", "growth", "monthly_series", "summary"]
+           "Bucket", "Trend", "breakdown", "growth", "monthly_series", "summary",
+           "PriceTrend", "YearPrice", "dynamics", "is_blended",
+           "KeyComparison", "Route", "RouteLine", "VenuePrice", "VenueScore",
+           "compare", "price_index", "rank", "smart_basket"]
