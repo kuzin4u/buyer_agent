@@ -372,8 +372,45 @@ def _facts_spending(p):
 
 #: Сценарий → что из его ответа увидит модель. Ровно то же, что заголовок
 #: страницы показывает человеку.
+def _facts_plan(p):
+    """Факты плана — ровно то, что показано человеку на экране.
+
+    Двух оснований счёта здесь два и есть: цена сравнимой части и обычная трата
+    остальных. Сложенной суммы среди фактов нет намеренно — её нет и на экране,
+    а модель обязана видеть то же, что человек (Р-26). Появись она здесь,
+    проверка чисел начала бы ПРОПУСКАТЬ пересказ, где два основания сложены.
+    """
+    plan = p["plan"]
+    rows = [("корзина", f"на {plan.period}"),
+            ("строк в корзине", plan.considered),
+            ("обычная трата на корзину, ₽", _money(plan.usual_total)),
+            ("магазин выбран у строк", plan.priced),
+            ("доля разведённого", f"{plan.covered:.0%}"),
+            ("основной магазин", plan.main_venue),
+            ("показан вариант", plan.chosen)]
+    for variant in plan.variants:
+        name = variant.id
+        rows.append((f"{name}: сравнимая часть, ₽", _money(variant.priced_total)))
+        rows.append((f"{name}: обычная трата остальных, ₽",
+                     _money(variant.usual_total)))
+        rows.append((f"{name}: заездов", variant.stops))
+        if variant.saving:
+            rows.append((f"{name}: экономия, ₽", _money(variant.saving)))
+        if variant.overpay:
+            rows.append((f"{name}: переплата, ₽", _money(variant.overpay)))
+        if variant.dropped:
+            rows.append((f"{name}: отказов", len(variant.dropped)))
+            rows.append((f"{name}: отказов на, ₽",
+                         _money(variant.dropped_amount)))
+    rows.append(("обычная трата разведённых строк, ₽",
+                 _money(plan.usual_of_priced)))
+    rows.append(("разрыв оснований, ₽", _money(plan.price_gap)))
+    return rows
+
+
 FACTS = {
     "profile": _facts_profile,
+    "plan": _facts_plan,
     "basket": _facts_basket,
     "budget": _facts_budget,
     "lapsed": _facts_lapsed,

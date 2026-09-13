@@ -100,3 +100,24 @@ code { font-size: 12px; background: var(--chip); padding: 1px 5px; border-radius
 pre.code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   padding: 12px; overflow-x: auto; font-size: 12px; line-height: 1.45;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Сводный экран «продукты на неделю»: варианты рядом, чтобы цена выбора
+   читалась сравнением, а не перелистыванием. Ограничение по покрытию —
+   отдельной рамкой и выше вариантов: вариант, прочитанный без него, выглядит
+   выбором там, где выбирать было не из чего. */
+.variants { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); }
+.variant { margin: 0; display: flex; flex-direction: column; }
+.variant.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.variant h3 { margin: 0 0 4px; font-size: 15px; }
+.variant .where { margin: 0 0 10px; font-size: 13px; }
+.variant .kpis { gap: 18px; margin-bottom: 10px; }
+.variant .price-of-choice { font-size: 13px; line-height: 1.5; flex: 1; }
+.variant .chosen-mark { font-size: 12px; color: var(--accent); font-weight: 700;
+  margin: 0; }
+/* Кнопка выбора — чип по содержимому, а не во всю колонку: растянутый на
+   карточку чип читается как заголовок следующего блока. */
+.variant .chip { align-self: flex-start; }
+.warn-box { border-color: #d9c08a; background: #fdf8ec; }
+tr.dim td { color: var(--muted); }
+tr.dim td.w { font-weight: 400; }
+@media (max-width: 900px) { .variants { grid-template-columns: 1fr; } }

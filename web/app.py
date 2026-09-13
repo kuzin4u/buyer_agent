@@ -74,6 +74,20 @@ def signed_pct(value):
     return f"{value * 100:+.0f}%"
 
 
+def plural(count, one, few, many):
+    """Русское склонение после числа: «1 строка», «3 строки», «8 строк».
+
+    Живёт в оболочке, а не в ядре: это слово интерфейса (Р-23). Считать здесь
+    нечего — падеж выбирается по уже посчитанному числу.
+    """
+    n = abs(int(count or 0))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
 UNIT = {"kg": "₽/кг", "l": "₽/л", "pcs": "₽/шт"}
 
 #: Служебные слова ядра, переведённые для человека. Оболочка — интерфейс
@@ -107,7 +121,7 @@ def keylabel(key, by):
     return gtitle(key) if by == "group" else str(key)
 
 
-templates.env.filters.update(money=money, signed=signed, pct=pct,
+templates.env.filters.update(money=money, signed=signed, pct=pct, plural=plural,
                              signed_pct=signed_pct, unit=UNIT.get,
                              gtitle=gtitle, keylabel=keylabel,
                              period_ru=lambda v: PERIOD_RU.get(v, v or "—"),
@@ -202,6 +216,21 @@ def index(request: Request, q: str = ""):
 @app.get("/profile", name="profile")
 def profile(request: Request):
     return page(request, "profile", run("profile"))
+
+
+@app.get("/plan", name="plan")
+def plan(request: Request, period: str = "week", amount: float = None,
+         choice: str = None):
+    """Неделя одним потоком: варианты → выбор → список по магазинам.
+
+    Три отдельные страницы (8.2, 8.3, 8.6) остаются: они отвечают на свои
+    вопросы и нужны, когда вопрос именно такой. Здесь они сведены в один экран
+    для одного вопроса — «что брать на неделю и где».
+    """
+    _session, _store, parser = state()
+    return page(request, "plan",
+                run("plan", period=period, amount=amount, choice=choice),
+                titles_variant=parser.variants("plan"))
 
 
 @app.get("/basket", name="basket")

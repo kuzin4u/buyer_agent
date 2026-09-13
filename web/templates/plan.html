@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Продукты на {{ period|period_acc }}{% endblock %}
+{% block body %}
+
+<form class="filters" action="/plan" method="get">
+  {% for p, label in (("week", "на неделю"), ("month", "на месяц")) %}
+    <a class="chip small {% if period == p %}on{% endif %}"
+       href="/plan?period={{ p }}{% if amount %}&amount={{ amount|round|int }}{% endif %}">{{ label }}</a>
+  {% endfor %}
+  <span class="sep"></span>
+  <input type="hidden" name="period" value="{{ period }}">
+  <label>уложиться в
+    <input class="narrow" type="number" name="amount" min="1" step="50"
+           value="{{ amount|round|int if amount else '' }}" placeholder="₽"></label>
+  <button type="submit">Пересчитать</button>
+</form>
+
+<h1>Продукты на {{ period|period_acc }}
+  <span class="muted">— {{ plan.considered }} строк, обычная трата
+    {{ plan.usual_total|money }} ₽</span></h1>
+<p class="muted">Собрано из 8.2 «корзина как обычно», 8.3 «уложиться в сумму» и
+  8.6 «где что дешевле». Числа те же, что на их страницах: здесь они сведены под
+  один вопрос — что брать и где.</p>
+
+{# --- Ограничение печатается ДО вариантов, а не после: выбор магазина есть
+       не у всех строк, и вариант, прочитанный без этого, выглядит советом
+       там, где советовать было не из чего. --- #}
+<section class="card warn-box">
+  <h2>Магазин известен не у всех позиций</h2>
+  <p>Выбран сравнением у <b>{{ plan.priced }}</b> из <b>{{ plan.considered }}</b>
+    {{ plan.considered|plural('строки', 'строк', 'строк') }} — это
+    {{ plan.covered|pct }} корзины. Остальные
+    {{ plan.unpriced }} едут в «{{ plan.main_venue }}»
+    <b>не потому, что там дешевле</b>, а потому что сравнить не с чем: цену
+    можно сравнивать только там, где у товара есть хотя бы три покупки в каждом
+    из двух магазинов.</p>
+  <table>
+    <thead><tr><th>группа</th><th>что берётся</th><th class="n">обычно, ₽</th>
+      <th>почему магазин не выбран</th></tr></thead>
+    <tbody>
+    {% for line, reason in plan.unpriced_reasons %}
+      <tr><td class="w">{{ line.group|gtitle }}</td>
+        <td class="muted">{{ line.label }}</td>
+        <td class="n">{{ line.amount|money }}</td>
+        <td class="muted">{{ reason }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Часть из этого чинится: «марка не распознана» — это задание,
+    оно правится пополнением словаря брендов в
+    <a href="/diagnostics">диагностике</a>. «Цена известна не у двух магазинов
+    сразу» — не задание, а факт: вы берёте это в одном месте, и сравнивать не с
+    чем по существу.</p>
+</section>
+
+{# --- Два основания счёта. Печатается рядом с числами, а не в сноске. --- #}
+<section class="card">
+  <h2>Цена и обычная трата — разные деньги</h2>
+  <p>Сравнимая часть посчитана по ценам последних
+    {{ PRICE_WINDOW_MONTHS }} месяцев. Остальное известно только обычной тратой —
+    медианой того, сколько на это уходит, <b>за всю историю покупок</b>. На одних
+    и тех же {{ plan.priced }}
+    {{ plan.priced|plural('строке', 'строках', 'строках') }} это
+    {{ plan.get("single").priced_total|money }} ₽ против
+    {{ plan.usual_of_priced|money }} ₽: разница {{ plan.price_gap|money }} ₽ —
+    не наценка магазина, а разница лет.</p>
+  <p>Количество во всех вариантах <b>одно и то же</b>: оно выведено из вашей
+    обычной траты на строку, а не назначено. Меняется только цена, по которой оно
+    посчитано, — поэтому «лук 527 ₽» и «обычно 417 ₽» не спорят друг с другом:
+    это одна и та же покупка в деньгах разных лет.</p>
+  <p class="muted">Поэтому общего итога у варианта здесь нет. Сложить эти рубли
+    значило бы получить правдоподобное число, которого никто не считал.</p>
+</section>
+
+{% if not plan.honoured %}
+  <section class="card warn-box">
+    <p><b>Вариант «под сумму» не построен: сумма не задана.</b> Показан
+      «{{ titles_variant[plan.chosen] }}». Подставить сумму молча нельзя — «под
+      2 000» и «под 3 000» дают разные ответы.</p>
+  </section>
+{% endif %}
+
+<h2>Чем различаются варианты</h2>
+<section class="variants">
+  {% for v in plan.variants %}
+    <article class="card variant {% if v.id == plan.chosen %}on{% endif %}">
+      <h3>{{ titles_variant[v.id] }}</h3>
+      <p class="where">{% if v.venues %}{{ v.venues|join(' + ') }}{% else %}—{% endif %}
+        <span class="muted">— {{ v.stops }}
+          {{ v.stops|plural('заезд', 'заезда', 'заездов') }}</span></p>
+
+      <div class="kpis">
+        <div><b>{{ v.priced_total|money }} ₽</b>
+          <span>{{ v.priced_lines|length }}
+            {{ v.priced_lines|length|plural('строка', 'строки', 'строк') }},
+            цены окна</span></div>
+        <div><b>{{ v.usual_total|money }} ₽</b>
+          <span>{{ v.unpriced_lines|length }}
+            {{ v.unpriced_lines|length|plural('строка', 'строки', 'строк') }},
+            обычная трата</span></div>
+      </div>
+
+      {# Цена выбора: чем платят за вариант, а не сколько он стоит. #}
+      <p class="price-of-choice">
+      {% if v.id == "single" %}
+        Ничего не меняется: один магазин, одна поездка, все
+        {{ v.lines|length }} {{ v.lines|length|plural('строка', 'строки', 'строк') }}.
+        Платите за это
+        <b class="bad">{{ v.overpay|money }} ₽</b> сверх развоза —
+        {{ v.overpay_share|pct }} сравнимой части.
+      {% elif v.id == "split" %}
+        Дешевле на <b class="good">{{ v.saving|money }} ₽</b>
+        ({{ v.saving_share|pct }} сравнимой части). Цена выбора —
+        <b>{{ plan.extra_stops }}
+        {{ plan.extra_stops|plural('лишний заезд', 'лишних заезда', 'лишних заездов') }}</b>
+        ради экономии на {{ plan.priced }}
+        {{ plan.priced|plural('строке', 'строках', 'строках') }} из
+        {{ plan.considered }}; остальные {{ plan.unpriced }} лежат там же, где и были.
+      {% elif v.id == "budget" %}
+        {% if v.fits %}Укладывается в {{ v.budget|money }} ₽ (запас
+          {{ v.slack|money }} ₽){% else %}<b class="bad">Не укладывается</b> в
+          {{ v.budget|money }} ₽: не хватает {{ (-v.slack)|money }} ₽{% endif %}.
+        Цена выбора — <b class="bad">{{ v.dropped|length }}
+        {{ v.dropped|length|plural('незакрытая потребность', 'незакрытые потребности',
+                                   'незакрытых потребностей') }}</b>
+        ({{ v.dropped|map(attribute='group')|map('gtitle')|join(', ') }}) на
+        {{ v.dropped_amount|money }} ₽. Это не цена, а отказ от покупки.
+        {% if v.swaps %}Замен внутри групп применено: {{ v.swaps|length }}.
+        {% else %}Заменить дорогое на дешёвое внутри группы не удалось ни разу —
+        значит экономия здесь только отказом.{% endif %}
+        {% if v.budget %}<br><i class="muted">Проверка «уложились» идёт по обычной
+          трате, то есть в деньгах прошлого: сегодняшние цены выше на
+          {{ plan.price_gap|money }} ₽ уже на {{ plan.priced }}
+          {{ plan.priced|plural('строке', 'строках', 'строках') }}.</i>{% endif %}
+      {% endif %}
+      </p>
+
+      {% if v.id == plan.chosen %}
+        <p class="chosen-mark">Показан ниже</p>
+      {% else %}
+        <a class="chip" href="/plan?period={{ period }}{% if amount %}&amount={{ amount|round|int }}{% endif %}&choice={{ v.id }}">Выбрать этот</a>
+      {% endif %}
+    </article>
+  {% endfor %}
+</section>
+
+<h2>Список: {{ titles_variant[plan.chosen]|lower }}</h2>
+{% for venue, lines in variant.by_venue() %}
+  <section class="card">
+    <h3>{{ venue }} <span class="muted">— {{ lines|length }}
+      {{ lines|length|plural('позиция', 'позиции', 'позиций') }}</span></h3>
+    <table>
+      <thead><tr><th>что брать</th><th>группа</th><th class="n">сколько</th>
+        <th class="n">цена</th><th>откуда магазин</th></tr></thead>
+      <tbody>
+      {% for line in lines %}
+        <tr class="{% if not line.venue_known %}dim{% endif %}">
+          <td class="w">{{ line.label }}
+            {% if line.swap %}<br><i class="muted">вместо «{{ line.swap.from_key.label }}»
+              — замена внутри группы</i>{% endif %}
+            {% if line.substituted %}<br><i class="muted">цену сравнивали по другой
+              вашей регулярной марке, «{{ line.instead_of.label }}» сравнить не с
+              чем</i>{% endif %}</td>
+          <td class="muted">{{ line.group|gtitle }}</td>
+          <td class="n">{% if line.units %}{{ line.units|round(1) }}
+            {{ line.unit|unit|replace('₽/', '') }}{% else %}×{{ line.qty }}{% endif %}</td>
+          <td class="n">{% if line.priced %}{{ line.cost|money }} ₽
+            <br><i class="muted">{{ line.unit_price|money }} {{ line.unit|unit }}{% if line.months_old is not none %},
+              цене {{ line.months_old|round|int }} мес{% endif %}</i>
+            {% else %}<span class="muted">{{ line.amount|money }} ₽ обычно</span>{% endif %}</td>
+          <td>{% if line.venue_known %}<span class="good">выбран по цене</span>
+            {% else %}<span class="muted" title="{{ line.reason }}">по умолчанию —
+              {{ line.reason }}</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endfor %}
+
+{% if variant.dropped %}
+  <section class="card">
+    <h3>Не берём <span class="muted">— {{ variant.dropped_amount|money }} ₽</span></h3>
+    <table>
+      <tbody>
+      {% for line in variant.dropped %}
+        <tr><td class="w">{{ line.group|gtitle }}</td>
+          <td class="muted">{{ line.label }}</td>
+          <td class="n">{{ line.amount|money }} ₽</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">Потребность остаётся незакрытой. Выбрасывается самое
+      нерегулярное и никогда — обязательные позиции из настроек.</p>
+  </section>
+{% endif %}
+
+{% endblock %}

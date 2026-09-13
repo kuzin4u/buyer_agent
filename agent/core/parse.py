@@ -78,6 +78,18 @@ class Parser:
     def titles(self):
         return {s["id"]: s["title"] for s in self.scenarios}
 
+    def variants(self, scenario_id):
+        """Подписи вариантов сценария — тоже из конфига.
+
+        Сводный сценарий предлагает несколько способов закрыть одну и ту же
+        потребность, и называются они словами интерфейса. Держать их в ядре
+        нельзя по той же причине, по которой там нет подписей кнопок (Р-23).
+        """
+        for spec in self.scenarios:
+            if spec["id"] == scenario_id:
+                return dict(spec.get("variants", {}))
+        return {}
+
     # --- параметры ---
 
     def _first_value(self, text, table):

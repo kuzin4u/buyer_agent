@@ -29,11 +29,18 @@ class IntentsConfigTest(unittest.TestCase):
         for spec in self.intents["scenarios"]:
             self.assertIn(spec["id"], SCENARIOS, spec["id"])
 
+    #: Восемь функций ядра по SPEC §8.1–8.8. Список именной, а не длина: он
+    #: проверяет СВОЙСТВО — что каждая функция достижима, — и потому не падает
+    #: от появления сводного сценария поверх них (Р-17).
+    CORE_EIGHT = frozenset({"profile", "basket", "budget", "lapsed", "prices",
+                            "venues", "choose", "spending"})
+
     def test_every_core_function_is_reachable(self):
         """Все восемь функций ядра должны быть доступны из браузера (§8.11)."""
         declared = {s["id"] for s in self.intents["scenarios"]}
         self.assertEqual(declared, set(SCENARIOS))
-        self.assertEqual(len(declared), 8)
+        self.assertLessEqual(self.CORE_EIGHT, declared,
+                             "функция ядра пропала из конфига формулировок")
 
     def test_every_scenario_has_a_button_and_a_hint(self):
         for spec in self.intents["scenarios"]:
@@ -140,10 +147,12 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(intent.scenario, "prices")
         self.assertNotIn("by", intent.params)
 
-    def test_buttons_cover_all_eight_functions(self):
+    def test_buttons_cover_every_scenario(self):
+        """Кнопка есть у каждого сценария реестра, включая восемь функций ядра."""
         buttons = self.parser.buttons()
-        self.assertEqual(len(buttons), 8)
         self.assertEqual({b["id"] for b in buttons}, set(SCENARIOS))
+        self.assertLessEqual(IntentsConfigTest.CORE_EIGHT,
+                             {b["id"] for b in buttons})
 
 
 class ScenarioRegistryTest(unittest.TestCase):

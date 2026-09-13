@@ -75,7 +75,8 @@ class WebTest(unittest.TestCase):
         urls = {"profile": "/profile", "basket": "/basket?period=week",
                 "budget": "/budget?amount=2000", "lapsed": "/lapsed",
                 "prices": "/prices", "venues": "/venues", "choose": "/choose",
-                "spending": "/spending?by=year"}
+                "spending": "/spending?by=year",
+                "plan": "/plan?period=week&amount=2000"}
         self.assertEqual(set(urls), set(SCENARIOS))
         for name, url in urls.items():
             self.assertIn("8.", self.get(url), name)
@@ -252,6 +253,130 @@ class WebTest(unittest.TestCase):
 
 
 @unittest.skipUnless(WEB, REASON)
+class PlanPageTest(unittest.TestCase):
+    """Сводный экран «продукты на неделю».
+
+    Проверяется не вёрстка, а то, что оговорки ядра дошли до страницы. Экран
+    сводит три функции в один ответ, и ровно поэтому на нём легче всего
+    получить убедительную неправду: показать выбор магазина там, где выбора не
+    было, или сложить два основания счёта в один итог.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        os.environ["BUYER_AGENT_DB"] = os.path.join(cls.dir, "state.db")
+        import web.app as app_module
+        cls.module = app_module
+        cls.module.reset_state()
+        cls.client = TestClient(app_module.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.module.reset_state()
+        os.environ.pop("BUYER_AGENT_DB", None)
+
+    def page(self, url="/plan?period=week&amount=2000"):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, url)
+        return flat(response.text)
+
+    def money(self, value):
+        """Сумма так, как она выглядит в сжатом тексте страницы.
+
+        `money` разделяет разряды неразрывным пробелом, а `flat` сжимает любые
+        пробелы в обычный. Без этого тест сравнивал бы «1 040» с «1\xa0040» и
+        падал на форматировании, а не на смысле.
+        """
+        return flat(self.module.money(value))
+
+    def plan(self, **kwargs):
+        from agent.core import run_scenario
+        session, _store, _parser = self.module.state()
+        return run_scenario("plan", session, period="week", amount=2000,
+                            **kwargs)["plan"]
+
+    def test_coverage_is_stated_before_the_variants(self):
+        """Ограничение стоит выше вариантов, а не в сноске под ними.
+
+        Вариант, прочитанный без него, выглядит выбором магазина — тогда как
+        у пяти строк из восьми магазин проставлен за неимением сравнения.
+        """
+        body = self.page()
+        plan = self.plan()
+        self.assertLess(body.index("Магазин известен не у всех позиций"),
+                        body.index("Чем различаются варианты"),
+                        "покрытие напечатано ниже вариантов")
+        self.assertIn(f"у <b>{plan.priced}</b> из <b>{plan.considered}</b>", body)
+        self.assertIn("не потому, что там дешевле", body)
+
+    def test_every_line_without_a_shop_carries_its_reason(self):
+        """Причина печатается у каждой такой строки, а не общей фразой."""
+        body = self.page()
+        plan = self.plan()
+        self.assertTrue(plan.unpriced_reasons, "на датасете такие строки есть")
+        for line, reason in plan.unpriced_reasons:
+            self.assertIn(reason, body, line.group)
+
+    def test_the_two_bases_are_named_on_the_page(self):
+        """Цена окна и обычная трата названы разными деньгами, с числом разрыва."""
+        body = self.page()
+        plan = self.plan()
+        self.assertIn("разные деньги", body)
+        self.assertIn(self.money(plan.price_gap), body)
+        self.assertIn(self.money(plan.usual_of_priced), body)
+
+    def test_the_page_prints_no_grand_total(self):
+        """Сумма двух оснований на странице не встречается ни в каком виде.
+
+        Проверка не на формулировку, а на само число: если кто-нибудь сложит их
+        в шаблоне, тест поймает результат, как бы он ни был подписан.
+        """
+        body = self.page()
+        plan = self.plan()
+        for variant in plan.variants:
+            forbidden = self.money(variant.priced_total
+                                   + variant.usual_total)
+            self.assertNotIn(forbidden, body,
+                             f"{variant.id}: на странице сложены два основания")
+
+    def test_price_of_choice_names_what_it_costs_not_only_a_sum(self):
+        """У каждого варианта назван не итог, а чем за него платят."""
+        body = self.page()
+        self.assertIn("Цена выбора", body)
+        self.assertIn("лишних заезда", body)          # врозь: поездки
+        self.assertIn("незакрытые потребности", body)  # под сумму: отказ
+        self.assertIn("сверх развоза", body)           # в одном месте: переплата
+
+    def test_choosing_a_variant_changes_the_list(self):
+        """Выбор доходит до списка, а не только подсвечивает карточку."""
+        single = self.page("/plan?period=week&amount=2000&choice=single")
+        split = self.page("/plan?period=week&amount=2000&choice=split")
+        self.assertIn("Список: всё в одном месте", single)
+        self.assertIn("Список: врозь по магазинам", split)
+        plan = self.plan(choice="split")
+        for venue in plan.get("split").venues:
+            self.assertIn(venue, split)
+
+    def test_asking_for_the_budget_variant_without_a_sum_says_so(self):
+        """Молча подставленный вариант — ошибка, неотличимая от правды (Р-23)."""
+        body = self.page("/plan?period=week&choice=budget")
+        self.assertIn("не построен: сумма не задана", body)
+
+    def test_chosen_lines_are_distinguishable_from_default_ones(self):
+        body = self.page("/plan?period=week&amount=2000&choice=split")
+        self.assertIn("выбран по цене", body)
+        self.assertIn("по умолчанию", body)
+
+    def test_free_query_reaches_the_plan(self):
+        """«Продукты на неделю» словами ведёт на тот же экран, что кнопка."""
+        response = self.client.get("/?q=продукты на неделю",
+                                   follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/plan", response.headers["location"])
+
+
+@unittest.skipUnless(WEB, REASON)
 class ApiTest(unittest.TestCase):
     """JSON API: то, чем пользуется бот (ОА-1) и экспорт профиля (§9)."""
 
@@ -275,8 +400,17 @@ class ApiTest(unittest.TestCase):
         return response.json()
 
     def test_scenarios_are_listed_for_the_bot(self):
+        """Боту виден весь реестр, включая восемь функций ядра.
+
+        Проверяется состав, а не длина: список растёт сводными сценариями, и
+        порог на длину мерил бы полноту конфига, а не свойство кода (Р-17).
+        """
+        from agent.core import SCENARIOS
         data = self.json("/api/scenarios")
-        self.assertEqual(len(data["scenarios"]), 8)
+        self.assertEqual({s["id"] for s in data["scenarios"]}, set(SCENARIOS))
+        self.assertLessEqual({"profile", "basket", "budget", "lapsed", "prices",
+                              "venues", "choose", "spending"},
+                             {s["id"] for s in data["scenarios"]})
         self.assertIn("smart", data)
 
     def test_ask_answers_with_core_numbers(self):

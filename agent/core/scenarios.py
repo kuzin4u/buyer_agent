@@ -17,6 +17,7 @@
 from dataclasses import dataclass
 
 from .. import matching as M
+from .. import plan as PL
 from .. import profile as P
 
 #: id сценария → Scenario. Порядок — как объявлено, он же порядок кнопок.
@@ -103,6 +104,22 @@ def _budget(session, amount, period="week"):
             "swapped": sorted((l for l in fit.lines if l.swap),
                               key=lambda l: -l.swap.saving),
             "min_gain": M.MIN_GAIN_SHARE}
+
+
+@scenario("plan", "8.2+8.3+8.6", params=("period", "amount", "choice"))
+def _plan(session, period="week", amount=None, choice=None):
+    """Неделя целиком: варианты, цена выбора, список по магазинам.
+
+    Своего счёта у сценария нет — он совмещает 8.2, 8.3 и 8.6. Совмещение
+    нетривиально ровно в одном месте: у 8.2 и 8.6 разные основания счёта, и
+    складывать их нельзя (см. `agent/plan.py`).
+    """
+    built = PL.build(session.history, session.profile, session.catalog,
+                     settings=session.settings, period=period, budget=amount,
+                     chosen=choice)
+    return {"plan": built, "variant": built.variant, "period": period,
+            "amount": amount, "choice": built.chosen,
+            "window": built.window_months}
 
 
 @scenario("lapsed", "8.4", params=("asof", "all"))
