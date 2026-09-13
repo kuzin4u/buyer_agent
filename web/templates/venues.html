@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}8.6 Где что дешевле{% endblock %}
+{% block body %}
+
+<form class="filters" action="/venues" method="get">
+  <a class="chip small {% if not period %}on{% endif %}" href="/venues">где что дешевле</a>
+  {% for p, label in (("week", "развести корзину на неделю"), ("month", "на месяц")) %}
+    <a class="chip small {% if period == p %}on{% endif %}" href="/venues?period={{ p }}">{{ label }}</a>
+  {% endfor %}
+</form>
+
+{% if period %}
+<h1>8.6 Умная корзина <span class="muted">— маршрут экономии, корзина на {{ period|period_acc }}</span></h1>
+  {% if not route.lines %}
+    <section class="card"><p>Ни одну строку корзины не удалось сравнить между
+      магазинами: цена известна не у двух магазинов сразу.</p></section>
+  {% else %}
+  <section class="card kpis">
+    <div><b>{{ route.baseline_total|money }} ₽</b><span>в одном месте ({{ route.best_single }})</span></div>
+    <div><b>{{ route.split_total|money }} ₽</b><span>врозь по {{ route.venues|length }} магазинам</span></div>
+    <div class="good"><b>{{ route.saving_abs|money }} ₽</b><span>экономия, {{ route.saving_pct|pct }}</span></div>
+    <div><b>{{ route.covered|pct }}</b><span>корзины удалось развести</span></div>
+  </section>
+  <section class="card">
+    <table>
+      <thead><tr><th>товар</th><th>магазин</th><th class="n">цена</th><th class="n">экономия</th></tr></thead>
+      <tbody>
+      {% for line in route.lines %}
+        <tr><td class="w">{{ line.key.label }}</td><td>{{ line.venue }}</td>
+          <td class="n">{{ line.unit_price|money }} {{ line.unit|unit }}</td>
+          <td class="n good">{{ line.saving|signed }} ₽</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">Посчитано по {{ route.lines|length }} строкам из
+      {{ route.lines|length + route.skipped|length }} — это {{ route.covered|pct }}
+      корзины. Остальные строки сравнить не с чем: цена известна не у двух магазинов
+      сразу, и в экономию они не засчитаны. База сравнения — лучший ОДИН магазин, а
+      не текущие траты: вопрос звучит «ехать в два места или в одно».</p>
+  </section>
+  {% endif %}
+{% else %}
+<h1>8.6 Где что дешевле <span class="muted">— медиана цены по магазинам</span></h1>
+  {% if not rows %}
+    <section class="card"><p>Сравнивать нечего.</p></section>
+  {% else %}
+  <section class="card">
+    <h2>Разрыв цены между магазинами</h2>
+    <canvas id="venues-chart" height="140"></canvas>
+    <script id="venues-data" type="application/json">{{ chart|tojson }}</script>
+  </section>
+  <section class="card">
+    <table>
+      <thead><tr><th>товар</th><th class="n">разрыв</th><th class="n">%</th><th>дешевле … дороже</th></tr></thead>
+      <tbody>
+      {% for c in rows %}
+        <tr>
+          <td class="w">{{ c.key.label }}</td>
+          <td class="n">{{ c.spread_abs|money }}</td>
+          <td class="n">{{ c.spread_pct|signed_pct }}</td>
+          <td>{% for p in c.prices %}{{ p.venue }} <b>{{ p.median|money }}</b>{% if not loop.last %} · {% endif %}{% endfor %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">Сравнимых товаров {{ total }}: нужно не меньше трёх покупок в
+      каждом из не менее чем двух магазинов. Порог не снижается — по одной-двум
+      покупкам медиана ничего не значит.</p>
+  </section>
+  {% endif %}
+{% endif %}
+<script src="/static/charts.js"></script>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}8.4 Что давно не покупал{% endblock %}
+{% block body %}
+<h1>8.4 Что давно не покупал <span class="muted">(на {{ asof }})</span></h1>
+
+<form class="filters" action="/lapsed" method="get">
+  <input name="asof" type="date" value="{{ asof }}">
+  <label><input type="checkbox" name="all" value="true" {% if all %}checked{% endif %}> включая оставленные привычки</label>
+  <button type="submit">Показать</button>
+</form>
+
+{% if not items %}
+  <section class="card"><p>Всё в срок — просроченных групп нет.</p></section>
+{% else %}
+<section class="card">
+  <table>
+    <thead><tr><th>группа</th><th class="n">последняя</th><th class="n">дней</th>
+      <th class="n">интервал</th><th class="n">просрочка</th><th>что брать</th></tr></thead>
+    <tbody>
+    {% for x in items %}
+      <tr>
+        <td class="w" title="{{ x.group }}">{{ x.group|gtitle }}</td>
+        <td class="n">{{ x.last_ts[:10] }}</td>
+        <td class="n">{{ x.days_since }}</td>
+        <td class="n">{{ x.median_gap_days|round|int }} дн</td>
+        <td class="n {% if x.overdue >= 2 %}bad{% endif %}">{{ "%.1f"|format(x.overdue) }}×</td>
+        <td>{{ x.label }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="total">Докупить {{ items|length }} групп, ориентировочно <b>{{ total|money }} ₽</b></p>
+  <p class="muted">Просрочка — во сколько раз превышен типичный интервал между
+    покупками этой группы. {% if all %}Показаны и оставленные привычки.{% endif %}</p>
+</section>
+{% endif %}
+{% endblock %}

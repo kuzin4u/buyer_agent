@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Агент-закупщик{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">Агент-закупщик</a>
+  <form class="ask" action="/" method="get">
+    <input name="q" value="{{ q|default('') }}" autocomplete="off"
+           placeholder="Спросите словами: «уложись в 2000», «что давно не покупал»">
+    <button type="submit">Спросить</button>
+  </form>
+  <a class="settings-link {% if scenario == 'settings' %}on{% endif %}"
+     href="/settings">Настройки</a>
+</header>
+
+<nav>
+  {% for b in buttons %}
+    <a class="chip {% if scenario == b.id %}on{% endif %}"
+       href="{{ b.id }}{% if b.args %}?{% for k, v in b.args.items() %}{{ k }}={{ v }}{% if not loop.last %}&{% endif %}{% endfor %}{% endif %}"
+       title="{{ b.hint }}">{{ b.title }}</a>
+  {% endfor %}
+</nav>
+
+<main>
+{% block body %}{% endblock %}
+</main>
+
+<footer>
+  Числа считает ядро, оболочка их только печатает (SPEC §8.9). Базовый слой
+  работает офлайн и без ключей.
+</footer>
+</body>
+</html>

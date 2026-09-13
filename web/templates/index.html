@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block body %}
+
+{% if q %}
+  <section class="card warn">
+    {% if intent and intent.understood and intent.missing %}
+      <h2>Понял «{{ titles[intent.scenario] }}», но не хватает числа</h2>
+      <p>В запросе «{{ q }}» нет суммы. Напишите, например, «уложись в 2000 ₽»,
+         или задайте сумму прямо здесь:</p>
+      <form action="/budget" method="get" class="inline">
+        <input name="amount" type="number" min="1" step="1" placeholder="2000" required>
+        <select name="period">
+          <option value="week">на неделю</option>
+          <option value="month">на месяц</option>
+        </select>
+        <button type="submit">Уложиться</button>
+      </form>
+    {% else %}
+      <h2>Не понял запрос</h2>
+      <p>«{{ q }}» не совпал ни с одним сценарием. Базовый слой разбирает запросы
+         регулярками, без ЛЛМ (SPEC §8.9): он понимает формулировки из словаря,
+         а не любые. Выберите кнопку ниже или спросите иначе.</p>
+      {% if intent and intent.params %}
+        <p class="muted">Из запроса удалось понять только параметры:
+          {% for k, v in intent.params.items() %}<code>{{ k }}={{ v }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endif %}
+
+<section class="card">
+  <h1>Что я могу посчитать</h1>
+  <p class="muted">
+    История: {{ profile.span[0][:10] }} … {{ profile.span[1][:10] }},
+    {{ profile.txns }} продуктовых сделок на {{ profile.spend|money }} ₽,
+    средний чек {{ profile.avg_txn|money }} ₽,
+    постоянная корзина — {{ profile.staples|length }} групп.
+  </p>
+  <div class="grid">
+    {% for b in buttons %}
+      <a class="tile" href="{{ b.id }}{% if b.args %}?{% for k, v in b.args.items() %}{{ k }}={{ v }}{% if not loop.last %}&{% endif %}{% endfor %}{% endif %}">
+        <b>{{ b.title }}</b>
+        <span>{{ b.hint }}</span>
+        {% if b.example %}<em>«{{ b.example }}»</em>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

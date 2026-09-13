@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}8.5 Динамика цен{% endblock %}
+{% block body %}
+<h1>8.5 Динамика цен <span class="muted">— только внутри одного товара</span></h1>
+
+<form class="filters" action="/prices" method="get">
+  <label><input type="checkbox" name="all" value="true" {% if all %}checked{% endif %}> по всем товарам, не только постоянная корзина</label>
+  <label><input type="checkbox" name="blended" value="true" {% if blended %}checked{% endif %}> включая товары с нераспознанной маркой</label>
+  <input name="limit" type="number" min="1" value="{{ limit }}" class="narrow">
+  <button type="submit">Показать</button>
+</form>
+
+{% if not trends %}
+  <section class="card"><p>Сравнивать нечего: ни у одного товара нет двух годов с
+    тремя наблюдениями.</p></section>
+{% else %}
+
+<section class="card kpis">
+  <div><b>{{ summary.keys }}</b><span>рядов, {{ summary.span[0] }}–{{ summary.span[1] }}</span></div>
+  <div><b>{{ summary.up }}</b><span>подорожало</span></div>
+  <div><b>{{ summary.down }}</b><span>подешевело</span></div>
+  <div><b>{{ summary.median_pct|signed_pct }}</b><span>типичное изменение</span></div>
+</section>
+
+<section class="card">
+  <h2>Как менялась цена</h2>
+  <canvas id="prices-chart" height="120"></canvas>
+  <p class="muted">На графике первые {{ chart|length }} рядов таблицы. Единицы у
+    рядов разные (₽/кг, ₽/л, ₽/шт) — числа из разных рядов не складываются.</p>
+  <script id="prices-data" type="application/json">{{ chart|tojson }}</script>
+</section>
+
+<section class="card">
+  <table>
+    <thead><tr><th>товар</th><th class="n">было</th><th class="n">стало</th>
+      <th class="n">изменение</th><th class="n">%</th><th class="n">годы</th></tr></thead>
+    <tbody>
+    {% for t in trends %}
+      <tr>
+        <td class="w">{{ t.key.label }}</td>
+        <td class="n">{{ t.first.median|money }}</td>
+        <td class="n">{{ t.last.median|money }}</td>
+        <td class="n {% if t.delta_abs > 0 %}bad{% else %}good{% endif %}">{{ t.delta_abs|signed }}</td>
+        <td class="n">{{ t.delta_pct|signed_pct }}</td>
+        <td class="n muted">{{ t.first.year }}→{{ t.last.year }} {{ t.unit|unit }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Порядок задаёт абсолютный рубль, процент вспомогателен:
+    подорожание с 20 до 80 ₽/кг — это +300%, но внимания оно стоит меньше, чем
+    +15% с 900 до 1035 ₽/кг.
+    {% if blended %}Показаны и товары с нераспознанной маркой — внутри такого
+      ключа лежат разные товары, и «рост» там может оказаться сменой марки.
+    {% else %}Исключены товары с нераспознанной маркой и ряды, где товар стали
+      продавать иначе — на вес вместо штук.{% endif %}</p>
+</section>
+{% endif %}
+<script src="/static/charts.js"></script>
+{% endblock %}

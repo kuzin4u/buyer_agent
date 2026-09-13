@@ -1,0 +1,17 @@
+# Зависимости ВЕБ-ОБОЛОЧКИ. Ядро (agent/) от них не зависит и работает на одной
+# стандартной библиотеке — это проверяется тем, что `python3 -m unittest
+# discover -s tests` проходит без установки чего-либо (DECISIONS Р-6).
+#
+#     python3 -m venv .venv
+#     .venv/bin/pip install -r requirements.txt
+#     .venv/bin/python -m web            # http://127.0.0.1:8000
+#
+# Chart.js не здесь: он лежит в web/static/vendor/ файлом, чтобы оболочке не
+# требовалась сеть для рисования графика.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+jinja2==3.1.6
+python-multipart==0.0.32
+
+# Только для тестов оболочки (fastapi.testclient).
+httpx==0.28.1

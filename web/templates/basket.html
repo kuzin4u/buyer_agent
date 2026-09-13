@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}8.2 Корзина «как обычно»{% endblock %}
+{% block body %}
+<h1>8.2 Корзина «как обычно» — {{ title }}</h1>
+
+<form class="filters" action="/basket" method="get">
+  <span>Период:</span>
+  {% for p, label in (("day", "день"), ("week", "неделя"), ("month", "месяц")) %}
+    <a class="chip small {% if period == p %}on{% endif %}" href="/basket?period={{ p }}">{{ label }}</a>
+  {% endfor %}
+  <a class="chip small {% if not period and not budget %}on{% endif %}" href="/basket">средний чек</a>
+  <span class="sep"></span>
+  <input name="budget" type="number" min="1" step="1" value="{{ budget or '' }}"
+         placeholder="сумма, ₽">
+  <button type="submit">Набрать на сумму</button>
+</form>
+
+{% if budget %}
+<section class="card warn">
+  <p>Это <b>8.2</b>: состав «как обычно», обрезанный по сумме. Уложиться в сумму,
+     заменяя дорогое на дешёвое внутри группы, — это
+     <a href="/budget?amount={{ budget|round|int }}">8.3 «Уложиться в сумму»</a>,
+     и ответ там будет другим.</p>
+</section>
+{% endif %}
+
+<section class="card">
+  {% for dept, lines in by_dept.items() %}
+    <h3>{{ dept }}</h3>
+    <table>
+      <tbody>
+      {% for line in lines %}
+        <tr>
+          <td class="w" title="{{ line.group }}">{{ line.group|gtitle }}{% if line.reason == "обязательная" %}<sup title="обязательная позиция из ваших настроек">*</sup>{% endif %}</td>
+          <td class="n">×{{ line.qty }}</td>
+          <td class="n">{{ line.amount|money }} ₽</td>
+          <td>{{ line.label }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+  <p class="total">Итого: {{ basket|length }} позиций, <b>{{ basket.total|money }} ₽</b></p>
+  <p class="muted">Уровень атома — группа: пользователь думает «нужна сметана».
+     Под группу подставлен самый частый товар внутри неё (SPEC §4).
+     <sup>*</sup> — обязательная позиция из настроек §3.3.</p>
+</section>
+{% endblock %}

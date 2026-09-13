@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}8.1 Профиль предпочтений{% endblock %}
+{% block body %}
+<h1>8.1 Профиль предпочтений</h1>
+
+<section class="card kpis">
+  <div><b>{{ profile.span[0][:10] }} … {{ profile.span[1][:10] }}</b><span>история, {{ profile.months|round|int }} мес</span></div>
+  <div><b>{{ profile.txns }}</b><span>продуктовых сделок</span></div>
+  <div><b>{{ profile.spend|money }} ₽</b><span>потрачено</span></div>
+  <div><b>{{ profile.avg_txn|money }} ₽</b><span>средний чек</span></div>
+  <div><b>{{ profile.main_venue or "—" }}</b><span>основной магазин, {{ profile.main_venue_share|pct }} трат</span></div>
+  <div><b>{{ profile.staples|length }}</b><span>групп в постоянной корзине</span></div>
+</section>
+
+<section class="card">
+  <h2>Постоянная корзина</h2>
+  <p class="muted">Группа постоянна, если берётся не реже раза в месяц и встречалась
+     хотя бы трижды. Критерий частотный, а не долевой: «беру раз в месяц» — это про
+     привычку, а «попадает в 5% чеков» ни о чём не говорит.</p>
+  <table>
+    <thead><tr><th>группа</th><th class="n">сделок</th><th class="n">раз/мес</th>
+      <th class="n">интервал</th><th class="n">потрачено</th><th>типичный товар</th></tr></thead>
+    <tbody>
+    {% for s in staples %}
+      <tr><td title="{{ s.group }}">{{ s.group|gtitle }}</td><td class="n">{{ s.txns }}</td>
+        <td class="n">{{ "%.2f"|format(s.per_month) }}</td>
+        <td class="n">{% if s.median_gap_days %}{{ s.median_gap_days|round|int }} дн{% else %}—{% endif %}</td>
+        <td class="n">{{ s.amount|money }} ₽</td>
+        <td>{% if s.typical_key %}{{ s.typical_key.label }}{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="two">
+<section class="card">
+  <h2>Доли трат по отделам</h2>
+  <table>
+    <tbody>
+    {% for dept, share in depts %}
+      <tr><td>{{ dept }}</td><td class="n">{{ share|pct(1) }}</td>
+        <td class="bar"><i style="width: {{ (share * 100)|round(1) }}%"></i></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Магазины</h2>
+  <table>
+    <thead><tr><th>магазин</th><th class="n">сделок</th><th class="n">сумма</th><th class="n">доля</th></tr></thead>
+    <tbody>
+    {% for v in venues %}
+      <tr><td>{{ v.venue }}</td><td class="n">{{ v.txns }}</td>
+        <td class="n">{{ v.amount|money }} ₽</td><td class="n">{{ v.share|pct(1) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Доля считается от трат, привязанных к магазину: покупки с
+     неустановленным продавцом в рейтинг не идут.</p>
+</section>
+</div>
+{% endblock %}

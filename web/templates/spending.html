@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}8.8 Контроль трат{% endblock %}
+{% block body %}
+<h1>8.8 {% if growth %}Где траты растут{% else %}Контроль трат{% endif %}
+  <span class="muted">— разрез «{{ by|by_ru }}»</span></h1>
+
+<form class="filters" action="/spending" method="get">
+  <span>Разрез:</span>
+  {% for dim, label in (("year","годы"),("month","месяцы"),("venue","магазины"),("dept","отделы"),("group","группы"),("segment","сегменты")) %}
+    <a class="chip small {% if by == dim %}on{% endif %}"
+       href="/spending?by={{ dim }}{% if growth %}&growth=true&months={{ months }}{% endif %}">{{ label }}</a>
+  {% endfor %}
+  <span class="sep"></span>
+  <a class="chip small {% if growth %}on{% endif %}"
+     href="/spending?by={{ by }}{% if not growth %}&growth=true{% endif %}">где растут</a>
+  {% if growth %}
+    <input name="by" type="hidden" value="{{ by }}">
+    <input name="growth" type="hidden" value="true">
+    <span>окно, мес:</span>
+    <input name="months" type="number" min="1" max="60" value="{{ months }}" class="narrow">
+    <button type="submit">Пересчитать</button>
+  {% endif %}
+</form>
+
+<section class="card kpis">
+  <div><b>{{ summary.total|money }} ₽</b><span>всего за {{ summary.months }} мес</span></div>
+  <div><b>{{ summary.median_month|money }} ₽</b><span>типичный месяц</span></div>
+  <div><b>{{ summary.first_month }} … {{ summary.last_month }}</b><span>период</span></div>
+</section>
+
+{% if growth %}
+<section class="card">
+  <h2>{{ months }} мес против предыдущих {{ months }}</h2>
+  <canvas id="growth-chart" height="130"></canvas>
+  <script id="growth-data" type="application/json">{{ chart|tojson }}</script>
+</section>
+<section class="card">
+  <table>
+    <thead><tr><th>ключ</th><th class="n">было</th><th class="n">стало</th>
+      <th class="n">изменение</th><th class="n">%</th></tr></thead>
+    <tbody>
+    {% for t in trends %}
+      <tr><td class="w">{{ t.key|keylabel(by) }}</td><td class="n">{{ t.before|money }}</td>
+        <td class="n">{{ t.after|money }}</td>
+        <td class="n {% if t.delta_abs > 0 %}bad{% else %}good{% endif %}">{{ t.delta_abs|signed }}</td>
+        <td class="n">{{ t.delta_pct|signed_pct }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Ранжировано по абсолютному рублю, процент вспомогателен. Рост
+    считается окно-к-окну, а не по календарным годам: незакрытый год иначе выглядел
+    бы падением.</p>
+</section>
+{% else %}
+<section class="card">
+  <h2>Траты в разрезе «{{ by|by_ru }}»</h2>
+  <canvas id="spending-chart" height="130"></canvas>
+  <script id="spending-data" type="application/json">{{ chart|tojson }}</script>
+</section>
+<section class="card">
+  <table>
+    <thead><tr><th>ключ</th><th class="n">сумма</th><th class="n">сделок</th><th class="n">доля</th></tr></thead>
+    <tbody>
+    {% for b in buckets %}
+      <tr><td class="w">{{ b.key|keylabel(by) }}</td><td class="n">{{ b.amount|money }} ₽</td>
+        <td class="n">{{ b.txns }}</td><td class="n">{{ b.share|pct(1) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Считается по каждому рублю, включая непродуктовое: это тоже
+    расходы. Сюда попадают и сделки без опознанного магазина.</p>
+</section>
+{% endif %}
+<script src="/static/charts.js"></script>
+{% endblock %}

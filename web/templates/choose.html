@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}8.7 Выбор магазина{% endblock %}
+{% block body %}
+<h1>8.7 Выбор магазина <span class="muted">— цена из чеков, качество и обстановка от вас</span></h1>
+
+{% if not scores %}
+  <section class="card"><p>Данных не хватает: ни у одного магазина нет пяти
+    сравнимых товаров.</p></section>
+{% else %}
+<section class="card">
+  <table>
+    <thead><tr><th>магазин</th><th class="n">итог</th><th class="n">цена</th>
+      <th class="n">индекс</th><th class="n">качество</th><th class="n">обстановка</th>
+      <th class="n">товаров</th></tr></thead>
+    <tbody>
+    {% for s in scores %}
+      <tr>
+        <td class="w">{{ s.venue }}</td>
+        <td class="n"><b>{{ "%.2f"|format(s.total) }}</b></td>
+        <td class="n">{{ "%.2f"|format(s.price_score) }}</td>
+        <td class="n">{{ "%.2f"|format(s.price_index) }}</td>
+        <td class="n">{% if s.quality %}{{ "★" * s.quality }}{% else %}—{% endif %}</td>
+        <td class="n">{% if s.ambience %}{{ "★" * s.ambience }}{% else %}—{% endif %}</td>
+        <td class="n">{{ s.keys }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p>Итог сложен из: <b>{{ basis|join(", ") }}</b>.</p>
+  <p class="muted">Индекс 0,90 значит «в среднем на 10% дешевле остальных».
+    Магазин, у которого меньше пяти сравнимых товаров, в ранг не попадает вовсе.</p>
+  {% if basis|length == 1 %}
+    {% if rated %}
+      <p class="warn-inline">Оценки есть не у всех магазинов, поэтому в итог они не
+        вошли: иначе пять звёзд ОПУСКАЛИ бы оценённый магазин ниже неоценённого, у
+        которого в итоге осталась бы одна цена. Проставить недостающие звёзды мы не
+        можем — это ваши данные, — поэтому недостающая оценка выключает свою
+        составляющую для всех. <a href="/settings">Оценить магазины</a>.</p>
+    {% else %}
+      <p class="warn-inline">Оценок качества и обстановки нет: этих данных в чеках
+        не бывает, их ставит человек. <a href="/settings">Поставить звёзды</a>.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

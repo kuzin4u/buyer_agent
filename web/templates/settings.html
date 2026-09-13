@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block body %}
+<h1>Настройки <span class="muted">SPEC §3.3</span></h1>
+
+{% if saved %}<section class="card good-inline">Сохранено.</section>{% endif %}
+{% if error %}<section class="card warn"><b>{{ error }}</b></section>{% endif %}
+
+<section class="card">
+  <p class="muted">Эти настройки живут только у вас: в файле <code>{{ db }}</code>
+    рядом с кодом, и в репозиторий он не попадает. Датасет покупок владелец решил
+    публиковать, настройки — нет.</p>
+</section>
+
+<form action="/settings" method="post">
+<div class="two">
+  <section class="card">
+    <h2>Обязательные продукты</h2>
+    <p class="muted">Попадут в корзину всегда, даже если по частоте не проходят, и
+      не будут выброшены при подборе под бюджет.</p>
+    <div class="checks">
+      {% for g in groups %}
+        <label><input type="checkbox" name="required" value="{{ g }}"
+          {% if g in settings.required_groups %}checked{% endif %}>
+          <span title="{{ g }}">{{ g|gtitle }}</span> <i>{{ "%.2f"|format(group_stats[g].per_month) }}/мес</i></label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Исключённые продукты</h2>
+    <p class="muted">Не появятся в корзине никогда, как бы часто вы их ни брали.</p>
+    <div class="checks">
+      {% for g in groups %}
+        <label><input type="checkbox" name="excluded" value="{{ g }}"
+          {% if g in settings.excluded_groups %}checked{% endif %}>
+          <span title="{{ g }}">{{ g|gtitle }}</span> <i>{{ "%.2f"|format(group_stats[g].per_month) }}/мес</i></label>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Бюджет и состав истории</h2>
+  <div class="row">
+    <label>Целевой бюджет корзины, ₽
+      <input name="budget" type="number" min="0" step="1"
+             value="{{ settings.budget or '' }}" placeholder="например, 2000"></label>
+    <label>Основной магазин
+      <select name="main_venue">
+        <option value="">вывести из истории</option>
+        {% for v in venues %}
+          <option value="{{ v.venue }}" {% if settings.main_venue == v.venue %}selected{% endif %}>{{ v.venue }}</option>
+        {% endfor %}
+      </select></label>
+  </div>
+  <label class="wide"><input type="checkbox" name="include_candidates" value="true"
+      {% if settings.include_candidates %}checked{% endif %}>
+    Включить ярус «кандидаты в продуктовые»</label>
+  <p class="muted">Чеки без названия магазина классифицируются по составу позиций.
+    Спорный ярус по умолчанию выключен: включение меняет состав истории и
+    пересчитывает всё — например, «Агроаспект» может слиться с уже имеющимся
+    Перекрёстком. Переключение займёт около секунды: конвейер прогоняется заново.</p>
+</section>
+
+<p><button type="submit" class="primary">Сохранить настройки</button></p>
+</form>
+
+<section class="card">
+  <h2>Оценки магазинов</h2>
+  <p class="muted">Качества продуктов и обстановки в чеках нет и быть не может —
+    это ваши оценки, 1–5 звёзд. В итог 8.7 они входят только если поставлены у ВСЕХ
+    ранжируемых магазинов: иначе пять звёзд опускали бы оценённый магазин ниже
+    неоценённого, у которого в итоге осталась бы одна цена.</p>
+  <table>
+    <thead><tr><th>магазин</th><th class="n">сделок</th><th class="n">сумма</th>
+      <th>качество</th><th>обстановка</th><th></th></tr></thead>
+    <tbody>
+    {% for v in venues %}
+      {% set r = settings.venue_ratings.get(v.venue, {}) %}
+      <tr>
+        <td class="w">{{ v.venue }}</td>
+        <td class="n">{{ v.txns }}</td>
+        <td class="n">{{ v.amount|money }} ₽</td>
+        <td colspan="3">
+          <form action="/settings/rating" method="post" class="inline">
+            <input type="hidden" name="venue" value="{{ v.venue }}">
+            <select name="quality">
+              <option value="">—</option>
+              {% for i in range(1, 6) %}
+                <option value="{{ i }}" {% if r.get('quality') == i %}selected{% endif %}>{{ "★" * i }}</option>
+              {% endfor %}
+            </select>
+            <select name="ambience">
+              <option value="">—</option>
+              {% for i in range(1, 6) %}
+                <option value="{{ i }}" {% if r.get('ambience') == i %}selected{% endif %}>{{ "★" * i }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Оценить</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

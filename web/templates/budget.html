@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}8.3 Уложиться в сумму{% endblock %}
+{% block body %}
+<h1>8.3 Корзина под бюджет{% if amount %} — {{ amount|money }} ₽{% endif %}</h1>
+
+<form class="filters" action="/budget" method="get">
+  <input name="amount" type="number" min="1" step="1" value="{{ amount or '' }}"
+         placeholder="сумма, ₽" required>
+  <select name="period">
+    {% for p, label in (("week", "на неделю"), ("month", "на месяц"), ("day", "на день")) %}
+      <option value="{{ p }}" {% if period == p %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Уложиться</button>
+</form>
+
+{% if not fit %}
+  <section class="card">
+    <p>Назовите сумму — агент соберёт корзину на {{ period|period_acc }} и уложит её в эти деньги.</p>
+    <p class="muted">Рычагов два, и порядок между ними не произволен. Сначала замена
+      дорогого товара на дешёвый внутри той же группы: потребность остаётся
+      закрытой, просто другой марки. Только потом выброс группы — он оставляет
+      потребность незакрытой, поэтому идёт последним, и обязательные позиции из
+      ваших настроек не выбрасываются никогда.</p>
+  </section>
+{% else %}
+
+<section class="card kpis">
+  <div><b>{{ fit.total_before|money }} ₽</b><span>как обычно</span></div>
+  {% if fit.swaps %}<div><b>{{ (-fit.saved_by_swaps)|signed }} ₽</b><span>заменами, {{ fit.swaps|length }}</span></div>{% endif %}
+  {% if fit.dropped %}<div><b>{{ (-fit.saved_by_drops)|signed }} ₽</b><span>выброшено групп: {{ fit.dropped|length }}</span></div>{% endif %}
+  <div class="{% if fit.empty or not fit.fits %}bad{% else %}good{% endif %}">
+    <b>{{ fit.total|money }} ₽</b>
+    <span>{% if fit.empty %}корзина пуста{% elif fit.fits %}запас {{ fit.slack|money }} ₽{% else %}не хватает {{ (-fit.slack)|money }} ₽{% endif %}</span>
+  </div>
+</section>
+
+{% if fit.empty %}
+  <section class="card warn">
+    <h2>В эту сумму не входит ничего</h2>
+    <p>Бюджет закрылся тем, что покупать нечего, а это не ответ. Самая дешёвая
+      регулярная группа — <b>{{ fit.cheapest_dropped.group|gtitle }}</b> за
+      {{ fit.cheapest_dropped.amount|money }} ₽. Посмотрите
+      <a href="/basket?period={{ period }}">корзину на {{ period|period_acc }}</a> целиком.</p>
+  </section>
+{% elif not fit.fits %}
+  <section class="card warn">
+    <h2>Не уложились</h2>
+    <p>Дальше сжимать нечем: в корзине остались только обязательные позиции из
+      ваших <a href="/settings">настроек</a>, а их агент не выбрасывает (§3.3).</p>
+  </section>
+{% endif %}
+
+{% if swapped %}
+<section class="card">
+  <h2>Чем заменили — потребность та же, товар другой</h2>
+  <table>
+    <thead><tr><th>группа</th><th>было</th><th class="n">цена</th><th>стало</th>
+      <th class="n">цена</th><th class="n">экономия</th></tr></thead>
+    <tbody>
+    {% for line in swapped %}
+      <tr>
+        <td class="w" title="{{ line.group }}">{{ line.group|gtitle }}{% if line.swap.marginal %}<sup title="выгода меньше порога; замена применена, чтобы не выбрасывать группу">*</sup>{% endif %}</td>
+        <td>{{ line.was }}</td>
+        <td class="n">{{ line.swap.from_price|money }} {{ line.swap.unit|unit }}</td>
+        <td>{{ line.label }}</td>
+        <td class="n">{{ line.swap.to_price|money }} {{ line.swap.unit|unit }}</td>
+        <td class="n good">{{ (-line.swap.saving)|signed }} ₽ ({{ line.swap.gain_share|pct }})</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if swapped|selectattr("swap.marginal")|list %}
+    <p class="muted"><sup>*</sup> — выгода меньше {{ min_gain|pct }}: сама по себе
+      такая замена не предлагается, разница лежит внутри шума медианы. Здесь она
+      применена только потому, что иначе группу пришлось бы выбросить целиком, а
+      незакрытая потребность хуже смены марки.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Корзина, позиций: {{ fit.lines|length }}</h2>
+  {% for dept, lines in by_dept.items() %}
+    <h3>{{ dept }}</h3>
+    <table>
+      <tbody>
+      {% for line in lines %}
+        <tr>
+          <td class="w">{% if line.reason == "обязательная" %}<sup title="обязательная">*</sup>{% elif line.swap %}<span class="swap" title="заменено">→</span>{% endif %} <span title="{{ line.group }}">{{ line.group|gtitle }}</span></td>
+          <td class="n">×{{ line.qty }}</td>
+          <td class="n">{{ line.amount|money }} ₽</td>
+          <td>{{ line.label }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+</section>
+
+{% if fit.dropped %}
+<section class="card">
+  <h2>Выброшено, с самого нерегулярного</h2>
+  <table>
+    <tbody>
+    {% for line in fit.dropped %}
+      <tr><td class="w" title="{{ line.group }}">{{ line.group|gtitle }}</td><td class="n">{{ line.amount|money }} ₽</td>
+        <td class="muted">берётся {{ "%.2f"|format(line.times) }}× за период</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Покрытие рычага</h2>
+  <p>Строк в корзине {{ fit.considered }}; цену в окне
+     {{ window[0] }} … {{ window[1] }} каталог знает у {{ fit.comparable }},
+     заменить было чем у {{ fit.substitutable }}.</p>
+  {% if reasons %}
+    <table>
+      <tbody>
+      {% for reason, n in reasons %}
+        <tr><td class="n">{{ n }}</td><td>{{ reason }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  <p class="muted">Это не диагностика для разработчика: «марка не распознана»
+    исправляется пополнением словаря брендов, и тогда рычаг начинает работать на
+    эту строку. Весовой товар не заменяется никогда — у него различитель само
+    название, поэтому «лук вместо капусты» формально дешевле, а для человека это
+    другой ужин.</p>
+  {% if not fit.substitution_allowed %}
+    <p class="warn-inline">Замены не предлагались вовсе: горизонт подбора —
+      разовая среда, где верить можно только цене (SPEC §8.10).</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
