@@ -113,6 +113,125 @@ document.getElementById("frame").onload = function () {
 """
 
 
+#: Пробник взаимодействия: наведение и клик по легенде.
+#:
+#: События подаются в обработчик Chart.js собранными, а не через
+#: `dispatchEvent`, и это не обход проверки, а единственный способ её провести.
+#: У синтетического MouseEvent браузер приравнивает `offsetX` к `clientX`,
+#: Chart.js берёт координату именно оттуда — и точка приходит смещённой на
+#: положение холста в странице, то есть заведомо вне области графика. Проверка
+#: тогда меряет не поведение графика, а особенность синтетики. Здесь событие
+#: собирается ровно так, как его собирает платформа Chart.js из браузерного:
+#: тип, координаты внутри холста и сам нативный объект. Всё остальное —
+#: разбор попадания, подсказка, плагин легенды — настоящее.
+INTERACT = """<!doctype html>
+<html><head><meta charset="utf-8"><title>pending</title></head>
+<body>
+<iframe id="frame" src="%(path)s" style="width:1200px;height:900px;border:0"></iframe>
+<script>
+document.getElementById("frame").onload = function () {
+  var frame = this;
+  setTimeout(function () {
+    try {
+      var win = frame.contentWindow, doc = frame.contentDocument, out = {};
+      var canvas = doc.getElementById("%(chart)s");
+      var chart = win.Chart.getChart(canvas);
+
+      function at(type, x, y) {
+        return {type: type, chart: chart, x: x, y: y,
+                native: new win.MouseEvent(type, {bubbles: true, view: win})};
+      }
+      function gap(a, b) {
+        return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+      }
+
+      out.datasets = chart.data.datasets.length;
+      out.labels = chart.data.datasets.map(function (d) { return d.label; });
+
+      /* Точка строго между двумя соседними узлами: если подсказка ловится
+         только точным попаданием в узел, здесь её не будет.
+
+         Расстояние меряется до узлов ВСЕХ рядов, а не только своего: линий
+         восемь, они пересекаются, и середина своего отрезка запросто окажется
+         вплотную к чужому узлу. Тогда проверка снова выродится в наведение на
+         точку — просто на чужую. Берётся та середина, которая дальше всего от
+         любого узла графика. */
+      function visible(p) {
+        return p && !isNaN(p.x) && !isNaN(p.y) && p.skip !== true;
+      }
+      var all = [];
+      chart.data.datasets.forEach(function (_d, i) {
+        chart.getDatasetMeta(i).data.filter(visible).forEach(function (p) {
+          all.push({x: p.x, y: p.y});
+        });
+      });
+      var mid = null, best = -1, onDataset = null, counted = 0;
+      chart.data.datasets.forEach(function (_d, di) {
+        var pts = chart.getDatasetMeta(di).data.filter(visible);
+        counted += pts.length;
+        for (var k = 0; k + 1 < pts.length; k++) {
+          [0.25, 0.5, 0.75].forEach(function (t) {
+            var candidate = {x: pts[k].x + (pts[k + 1].x - pts[k].x) * t,
+                             y: pts[k].y + (pts[k + 1].y - pts[k].y) * t};
+            var nearest = Infinity;
+            all.forEach(function (p) {
+              nearest = Math.min(nearest, gap(candidate, p));
+            });
+            if (nearest > best) {
+              best = nearest; mid = candidate; onDataset = di;
+            }
+          });
+        }
+      });
+      out.visiblePoints = counted;
+      out.gapToNearestPoint = best;
+      out.hoveredSegmentOf = onDataset;
+
+      /* Что дал бы прежний режим: попадание строго в элемент. Разница между
+         этими двумя числами и есть то, ради чего менялась настройка. */
+      out.foundWithIntersect = chart.getElementsAtEventForMode(
+        {native: true, x: mid.x, y: mid.y, type: "mousemove"},
+        "nearest", {intersect: true, axis: "xy"}, false).length;
+
+      chart._eventHandler(at("mousemove", mid.x, mid.y));
+      out.activeOnLine = chart._active ? chart._active.length : 0;
+      out.tooltipActive = chart.tooltip.getActiveElements().length;
+      out.tooltipTitle = (chart.tooltip.title || []).join(" ");
+      out.tooltipLines = (chart.tooltip.body || []).map(function (b) {
+        return b.lines.join(" ");
+      });
+
+      /* Клик по названию в легенде — по второму ряду, если он есть. */
+      var index = chart.data.datasets.length > 1 ? 1 : 0;
+      var hit = chart.legend.legendHitBoxes[index];
+      out.legendBoxes = chart.legend.legendHitBoxes.length;
+      var cx = hit.left + hit.width / 2, cy = hit.top + hit.height / 2;
+
+      out.colorsBefore = chart.data.datasets.map(function (d) {
+        return d.borderColor; });
+      chart._eventHandler(at("click", cx, cy));
+      out.isolated = chart.$isolated;
+      out.colorsAfter = chart.data.datasets.map(function (d) {
+        return d.borderColor; });
+      out.hiddenAfter = chart.data.datasets.map(function (d, i) {
+        return !!chart.getDatasetMeta(i).hidden; });
+
+      chart._eventHandler(at("click", cx, cy));
+      out.isolatedAgain = chart.$isolated;
+      out.colorsRestored = chart.data.datasets.map(function (d) {
+        return d.borderColor; });
+
+      document.title = "RESULT:" + encodeURIComponent(JSON.stringify(out));
+    } catch (e) {
+      document.title = "FAILED:" + encodeURIComponent(String((e && e.stack) || e));
+    }
+  }, 800);
+};
+</script>
+</body></html>
+"""
+
+
 @fixture.slow
 @unittest.skipUnless(WEB, REASON)
 class ChartsInBrowserTest(unittest.TestCase):
@@ -141,6 +260,10 @@ class ChartsInBrowserTest(unittest.TestCase):
         @app_module.app.get("/__probe", response_class=HTMLResponse)
         def probe(target: str):                       # noqa: ANN001
             return PROBE % target
+
+        @app_module.app.get("/__interact", response_class=HTMLResponse)
+        def interact(target: str, chart: str):        # noqa: ANN001
+            return INTERACT % {"path": target, "chart": chart}
 
         # Порт занимается заранее и передаётся серверу готовым сокетом: выбрать
         # свободный порт и потом отдать его строкой — значит оставить зазор,
@@ -208,6 +331,89 @@ class ChartsInBrowserTest(unittest.TestCase):
             f"{path}: холст высотой {chart['height']} px разъехался — "
             f"обёртка .chart не задаёт высоту, и Chart.js наращивает её сам")
         return chart
+
+    def interact(self, path, chart_id):
+        """Измерения наведения и клика по легенде — из живого браузера."""
+        target = f"http://127.0.0.1:{self.port}{path}"
+        probe = (f"http://127.0.0.1:{self.port}/__interact"
+                 f"?target={urllib.parse.quote(target, safe='')}"
+                 f"&chart={urllib.parse.quote(chart_id, safe='')}")
+        dom = subprocess.run(
+            [self.chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+             "--window-size=1280,900", "--virtual-time-budget=15000",
+             "--dump-dom", probe],
+            capture_output=True, text=True, timeout=120).stdout
+        broken = re.search(r"<title>FAILED:([^<]*)</title>", dom)
+        if broken:
+            self.fail(f"{path}: пробник упал — "
+                      f"{urllib.parse.unquote(broken.group(1))}")
+        found = re.search(r"<title>RESULT:([^<]*)</title>", dom)
+        self.assertIsNotNone(
+            found, f"{path}: пробник не дошёл до результата")
+        return json.loads(urllib.parse.unquote(found.group(1)))
+
+    def test_tooltip_catches_the_line_not_only_the_point(self):
+        """Подсказка ловится рядом с линией, а не точным попаданием в точку.
+
+        На /prices линий восемь, и попасть мышью в точку радиусом три пикселя
+        трудно. Проверяется именно это: курсор ставится СТРОГО МЕЖДУ двумя
+        узлами, далеко от обоих, и подсказка обязана появиться, назвав величину
+        и значение.
+        """
+        out = self.interact("/prices", "prices-chart")
+        self.assertGreater(out["visiblePoints"], 1, "на линии меньше двух точек")
+        self.assertGreater(
+            out["gapToNearestPoint"], 20,
+            "курсор оказался слишком близко к узлу — проверка выродилась в "
+            "наведение на точку и больше ничего не стережёт")
+
+        # Прежний режим на этом же месте не нашёл бы ничего — ради этой
+        # разницы и менялась настройка.
+        self.assertEqual(
+            out["foundWithIntersect"], 0,
+            "точка выбрана неудачно: в неё попадает и режим строгого попадания")
+
+        self.assertEqual(out["activeOnLine"], 1,
+                         "рядом с линией не нашлось ни одного ряда")
+        self.assertEqual(out["tooltipActive"], 1, "подсказка не появилась")
+        self.assertTrue(out["tooltipTitle"], "в подсказке нет подписи точки")
+        self.assertTrue(out["tooltipLines"], "в подсказке нет строки значения")
+        line = out["tooltipLines"][0]
+        self.assertIn(":", line, f"подсказка без значения: {line!r}")
+        name = line.split(":")[0]
+        self.assertIn(name, out["labels"],
+                      f"подсказка назвала не ряд графика: {line!r}")
+        self.assertRegex(line.split(":", 1)[1], r"\d",
+                         f"подсказка без числа: {line!r}")
+
+    def test_legend_click_isolates_a_line_and_a_second_click_restores(self):
+        """Клик по названию выделяет свой ряд и приглушает остальные.
+
+        Ряд при этом не скрывается: скрытый меняет масштаб оси, и соседние
+        линии прыгают, а вопрос у читателя — «которая из них моя».
+        """
+        out = self.interact("/prices", "prices-chart")
+        self.assertGreater(out["datasets"], 1, "рядов меньше двух, выделять нечего")
+        self.assertEqual(out["legendBoxes"], out["datasets"],
+                         "в легенде не все ряды")
+        self.assertEqual(out["isolated"], 1, "клик по легенде не выделил ряд")
+
+        chosen = out["colorsAfter"][1]
+        self.assertEqual(chosen, out["colorsBefore"][1],
+                         "выделенный ряд сменил цвет")
+        others = [c for i, c in enumerate(out["colorsAfter"]) if i != 1]
+        for color in others:
+            self.assertNotIn(color, out["colorsBefore"],
+                             "остальные ряды не приглушены")
+            self.assertEqual(len(color), 9,
+                             f"приглушение не прозрачностью: {color}")
+        self.assertFalse(any(out["hiddenAfter"]),
+                         "ряд скрыт, а должен быть приглушён: масштаб оси "
+                         "не должен меняться от выделения")
+
+        self.assertIsNone(out["isolatedAgain"], "повторный клик не снял выделение")
+        self.assertEqual(out["colorsRestored"], out["colorsBefore"],
+                         "цвета не вернулись")
 
     def test_prices_chart_is_actually_drawn(self):
         self.assert_drawn("/prices", "prices-chart")
@@ -281,6 +487,27 @@ class ChartMarkupTest(unittest.TestCase):
                          ".chart без высоты в пикселях — холст разъедется")
         self.assertIn("position: relative", rule.group(1),
                       "Chart.js требует position: relative у контейнера")
+
+    def test_hover_and_legend_isolation_are_configured(self):
+        """Дешёвая стража настроек, которые проверяет браузерный класс.
+
+        Браузерный точнее, но требует Chrome и стоит секунды. Эти две строки
+        держат главное: подсказка не требует точного попадания, а клик по
+        легенде обрабатывается своим кодом, а не поведением по умолчанию.
+        """
+        script = self.read("web/static/charts.js")
+        self.assertRegex(
+            script, r"intersect:\s*false",
+            "подсказка снова требует попадания в точку: в линию радиусом "
+            "три пикселя мышью не попасть")
+        self.assertRegex(
+            script, r"onClick:[\s\S]{0,200}?isolate\(",
+            "клик по легенде не ведёт в выделение ряда — значит вернулся к "
+            "поведению по умолчанию, то есть к скрытию")
+        self.assertIn(
+            "legend: legendOptions", script,
+            "легенда собирается мимо legendOptions, и обработчик к ней не "
+            "прикреплён")
 
     def test_every_canvas_is_known_to_the_drawing_code(self):
         """Холст без кода отрисовки — пустое место на странице."""
