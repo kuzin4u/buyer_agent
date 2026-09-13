@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Чем определена фасовка{% endblock %}
+{% block body %}
+<h1>Позиции <span class="muted">— чем определена фасовка у каждой, SPEC §8.11</span></h1>
+
+<form class="filters" action="/diagnostics/positions" method="get">
+  <input name="search" value="{{ search }}" placeholder="часть названия">
+  <select name="status">
+    <option value="">любая причина</option>
+    {% for s, n in pack_sources %}
+      <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }} ({{ n }})</option>
+    {% endfor %}
+  </select>
+  <select name="group">
+    <option value="">любая группа</option>
+    {% for g in groups %}
+      <option value="{{ g }}" {% if group == g %}selected{% endif %}>{{ g|gtitle }}</option>
+    {% endfor %}
+  </select>
+  <label><input type="checkbox" name="brandless" value="true" {% if brandless %}checked{% endif %}> только без марки</label>
+  <button type="submit">Найти</button>
+  <a class="chip small" href="/diagnostics">к панели</a>
+</form>
+
+<section class="card">
+  <p>Подошло позиций: <b>{{ total|money }}</b>{% if pages > 1 %}, страница {{ page_no }} из {{ pages }}{% endif %}</p>
+  <table>
+    <thead><tr><th>дата</th><th>название</th><th>магазин</th><th class="n">цена</th>
+      <th class="n">фасовка</th><th>марка</th><th>группа</th><th>чем определена</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="muted">{{ r.dt[:10] }}</td>
+        <td class="w">{{ r.name }}</td>
+        <td>{{ r.venue or "—" }}</td>
+        <td class="n">{{ r.amount|money }} ₽</td>
+        <td class="n">{% if r.pack %}{{ r.pack }} {{ r.unit }}{% else %}—{% endif %}</td>
+        <td>{{ r.brand or "—" }}</td>
+        <td title="{{ r.group or '' }}">{{ r.group|gtitle if r.group else "—" }}</td>
+        <td class="muted">{{ r.status }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if pages > 1 %}
+    <p class="filters">
+      {% if page_no > 1 %}<a class="chip small" href="?search={{ search }}&status={{ status or '' }}&group={{ group or '' }}{% if brandless %}&brandless=true{% endif %}&page_no={{ page_no - 1 }}">← назад</a>{% endif %}
+      {% if page_no < pages %}<a class="chip small" href="?search={{ search }}&status={{ status or '' }}&group={{ group or '' }}{% if brandless %}&brandless=true{% endif %}&page_no={{ page_no + 1 }}">вперёд →</a>{% endif %}
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

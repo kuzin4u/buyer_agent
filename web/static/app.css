@@ -79,3 +79,13 @@ canvas { max-width: 100%; }
 footer { padding: 16px 20px; color: var(--muted); font-size: 12px;
   border-top: 1px solid var(--line); }
 @media (max-width: 820px) { .two { grid-template-columns: 1fr; } }
+
+/* Панель диагностики: цепочка «бренд → сравнимый товар → разведённая строка».
+   Решающие звенья выделены, потому что мера полезности — они, а не покрытие. */
+.chain tr.decisive td { background: #f4f8f4; }
+.chain tr.decisive b { font-weight: 700; }
+.chain i { font-style: normal; font-size: 11px; }
+.decisive-kpi b { color: var(--accent); }
+.decisive-kpi span { font-weight: 600; }
+button.ghost { background: transparent; color: var(--muted); border-color: var(--line); }
+code { font-size: 12px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }

@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% from "_chain.html" import chain %}
+{% block title %}Диагностика и пополнение словарей{% endblock %}
+{% block body %}
+<h1>Диагностика <span class="muted">— и пополнение словарей, SPEC §8.11</span></h1>
+
+{% if error %}<section class="card warn"><b>{{ error }}</b></section>{% endif %}
+{% if shown and shown.effect %}{{ chain(shown.effect, "Что дало правило «" ~ (shown.brand or shown.group) ~ " ← " ~ shown.match ~ "»") }}{% endif %}
+{% if rollback %}{{ chain(rollback, "Что изменил откат правила") }}{% endif %}
+
+<section class="card">
+  <h2>Главный вопрос и то, что его держит</h2>
+  <p class="muted">«Варианты моей корзины в разных магазинах» упирается не в
+    алгоритм, а в покрытие: сравнить цены можно только внутри одного товара, а
+    товар опознаётся маркой. Пополнение словаря — продолжение этой функции, и
+    мера его полезности — последние два звена, а не проценты покрытия.</p>
+  <div class="kpis">
+    <div><b>{{ reach.grouped_share|pct(1) }}</b><span>распознана группа, {{ reach.grouped|money }} позиций</span></div>
+    <div><b>{{ reach.packed_share|pct(1) }}</b><span>определена фасовка</span></div>
+    <div><b>{{ reach.branded_share|pct(1) }}</b><span>распознан бренд, {{ reach.branded|money }} из {{ reach.unit_items|money }}</span></div>
+    <div class="decisive-kpi"><b>{{ reach.comparable_shown }}</b><span>сравнимых товаров (8.6)</span></div>
+    <div class="decisive-kpi"><b>{{ reach.split_lines }} из {{ reach.basket_lines }}</b><span>строк корзины разводится, {{ reach.split_share|pct }}</span></div>
+    <div><b>{{ reach.saving|money }} ₽</b><span>экономия маршрута, {{ reach.saving_share|pct }}</span></div>
+  </div>
+</section>
+
+<div class="two">
+<section class="card">
+  <h2>Потолок разведённости: {{ reach.ceiling_lines }} из {{ reach.basket_lines }}</h2>
+  <p>У {{ reach.ceiling_lines }} строк недельной корзины в группе <b>есть</b> сравнимый
+    товар, а разводится {{ reach.split_lines }}. Разница — не непокрытие.</p>
+  <p class="muted">Маршрут 8.6 берёт у группы ОДИН типичный товар — тот, что вы
+    покупаете чаще всего. Если сравним другой товар той же группы, строка всё
+    равно не разводится. Пополнение словарей этот зазор не лечит: он в устройстве
+    маршрута, и решать его надо отдельно (журнал решений, П-7). Поэтому правило
+    бренда попадает в «сравнимые товары» сразу, а в «разведённые строки» — только
+    если размеченный товар у группы типичный.</p>
+</section>
+
+<section class="card">
+  <h2>Смешанных пулов: {{ reach.blended_pools }}</h2>
+  <p>Ещё {{ reach.blended_pools }} ключей набрали наблюдений на сравнение, но в ответ
+    не идут: марка не распознана.</p>
+  <p class="muted">Назвать их «товарами, которым не хватает одной марки» было бы
+    неправдой. Внутри такого ключа лежат РАЗНЫЕ товары — в «— · —% · 0,1 кг»
+    попали шоколад, белёвская пастила и жгучий перец. Правило бренда не
+    разблокирует пул, а расщепляет его, и осколки часто падают ниже порога в три
+    наблюдения. Поэтому это указатель объёма работы, а не обещание прибавки, и
+    уменьшаться он может одновременно с ростом ответа.</p>
+</section>
+</div>
+
+<section class="card">
+  <h2>Что разметить, чтобы прибавился сравнимый товар</h2>
+  <p class="muted">Очередь по ЭФФЕКТУ, а не по частоте. Здесь названия, у которых
+    наблюдений уже хватает самим по себе: не меньше {{ reach.comparable_shown and 3 }} покупок
+    в каждом из не менее двух магазинов. Размеченное, такое название даёт сравнимый
+    товар — не «вероятно», а точно, потому что наблюдения уже есть и они про один
+    и тот же товар. Сверху то, что стоит в вашей недельной корзине.</p>
+  {% if not candidates %}
+    <p>Очередь пуста: все названия, которые сами по себе сравнимы, уже размечены.</p>
+  {% else %}
+  <table>
+    <thead><tr><th>корзина</th><th>название в чеке</th><th>группа</th>
+      <th class="n">покупок</th><th class="n">магазинов</th><th class="n">разрыв цены</th>
+      <th>разметить как бренд</th></tr></thead>
+    <tbody>
+    {% for c in candidates %}
+      <tr>
+        <td>{% if c.in_basket %}<b class="good">неделя</b>{% elif c.in_month %}месяц{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="w">{{ c.name }}</td>
+        <td title="{{ c.group }}">{{ c.group|gtitle }}</td>
+        <td class="n">{{ c.purchases }}</td>
+        <td class="n">{{ c.venues }}</td>
+        <td class="n">{% if c.spread %}{{ c.spread|money }} {{ c.unit|unit }}{% else %}<span class="muted">нет</span>{% endif %}</td>
+        <td>
+          <form action="/diagnostics/rules" method="post" class="inline">
+            <input type="hidden" name="kind" value="brand">
+            <input type="hidden" name="match" value="{{ c.name[:24] }}">
+            <input name="brand" placeholder="марка" required size="12">
+            <button type="submit">Добавить</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Образец подставлен первыми 24 символами названия — поправьте его
+    в <a href="/diagnostics/positions?brandless=true">таблице позиций</a>, если
+    правило должно быть шире.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Добавить правило вручную</h2>
+  <div class="two">
+    <form action="/diagnostics/rules" method="post">
+      <input type="hidden" name="kind" value="brand">
+      <h3>Бренд</h3>
+      <div class="row">
+        <label>Марка<input name="brand" placeholder="Простоквашино" required></label>
+        <label>Образец в названии<input name="match" placeholder="ПРОСТОКВ" required></label>
+      </div>
+      <label class="wide">Заметка<input name="note" placeholder="зачем это правило"></label>
+      <p><button type="submit">Добавить бренд</button></p>
+    </form>
+    <form action="/diagnostics/rules" method="post">
+      <input type="hidden" name="kind" value="category">
+      <h3>Товарная группа</h3>
+      <div class="row">
+        <label>Группа
+          <select name="group" required>
+            {% for gid, dept in groups %}
+              <option value="{{ gid }}">{{ gid|gtitle }}{% if dept %} — {{ dept }}{% endif %}</option>
+            {% endfor %}
+          </select></label>
+        <label>Образец в названии<input name="match" placeholder="ШОК.*МОЛ" required></label>
+      </div>
+      <label class="wide">Заметка<input name="note" placeholder="зачем это правило"></label>
+      <p><button type="submit">Добавить группу</button></p>
+    </form>
+  </div>
+  <p class="muted">Образец — регулярное выражение по названию из чека, в верхнем
+    регистре и с Ё, сложенной в Е. Ваши правила проверяются ПЕРВЫМИ, раньше
+    правил из файла: вы смотрите на конкретную позицию и говорите, чем она
+    является, и это утверждение сильнее общего правила. Базовые
+    <code>config/*.json</code> при этом не меняются.</p>
+</section>
+
+{% if rules %}
+<section class="card">
+  <h2>Ваши правила: {{ rules|length }}</h2>
+  <table>
+    <thead><tr><th>что</th><th>образец</th><th>чем считать</th><th>добавлено</th>
+      <th>что дало</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rules %}
+      <tr>
+        <td>{{ "бренд" if r.kind == "brand" else "группа" }}</td>
+        <td><code>{{ r.match }}</code></td>
+        <td class="w">{{ r.brand or r.group|gtitle }}</td>
+        <td class="muted">{{ r.created_at[:16] }}</td>
+        <td>
+          {% if r.effect %}
+            {% set decisive = r.effect.steps|selectattr("decisive")|list %}
+            {% for s in decisive %}
+              <span class="{% if s.delta > 0 %}good{% elif s.delta < 0 %}bad{% endif %}">{{ s.name|lower }} {{ s.delta|signed }}</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            <a href="/diagnostics?rule={{ r.id }}">подробно</a>
+          {% else %}<span class="muted">не измерено</span>{% endif %}
+        </td>
+        <td>
+          <form action="/diagnostics/rules/{{ r.id }}/delete" method="post" class="inline">
+            <button type="submit" class="ghost">Откатить</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Откат тоже меряется: правило, снизившее сравнимость, бывает, и
+    проверить это можно только измерением в обе стороны.</p>
+</section>
+{% endif %}
+
+<div class="two">
+<section class="card">
+  <h2>Очередь по объёму: токены без марки</h2>
+  <p class="muted">Где сосредоточена масса неразобранного. Честный предел этой
+    очереди виден сразу: наверху «КУР», «ПЕСОК», «СЫР» — слова товара, а не марки.
+    Она показывает, куда смотреть, а не что размечать.</p>
+  <table>
+    <tbody>
+    {% for token, n in prefixes %}
+      <tr><td class="n">{{ n }}</td><td class="w">{{ token }}</td>
+        <td><a href="/diagnostics/positions?search={{ token }}&brandless=true">позиции</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Чем определена фасовка</h2>
+  <table>
+    <tbody>
+    {% for status, n in pack_sources %}
+      <tr><td class="n">{{ n|money }}</td><td>{{ status }}</td>
+        <td><a href="/diagnostics/positions?status={{ status }}">показать</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Требование §8.11 буквально: видно, чем определена фасовка у
+    каждой позиции — <a href="/diagnostics/positions">вся таблица</a>.</p>
+</section>
+</div>
+
+<div class="two">
+<section class="card">
+  <h2>Очередь А: непродуктовые категории</h2>
+  <p class="muted">Сортировка по деньгам: цель — корректный контроль трат, а
+    наверху разовые дорогие покупки, которых очередь по частоте не увидит никогда.</p>
+  <table>
+    <thead><tr><th class="n">сумма</th><th class="n">×</th><th>название</th><th></th></tr></thead>
+    <tbody>
+    {% for row in queue_a %}
+      <tr><td class="n">{{ row.amount|money }} ₽</td><td class="n">{{ row.purchases }}</td>
+        <td class="w">{{ row.name }}</td>
+        <td><a href="/diagnostics/positions?search={{ row.name[:18] }}">позиции</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Очередь Б: продуктовые группы</h2>
+  <p class="muted">Сортировка по числу покупок: цель — покрытие для медиан, и ниже
+    порога наблюдений медиану всё равно не построить. Частота здесь — порядок
+    разбора, а не правило отнесения.</p>
+  {% if not queue_b %}
+    <p>Очередь Б пуста: всё, что покупалось от трёх раз, отнесено к группе.</p>
+  {% else %}
+  <table>
+    <thead><tr><th class="n">×</th><th class="n">сумма</th><th>название</th></tr></thead>
+    <tbody>
+    {% for row in queue_b %}
+      <tr><td class="n">{{ row.purchases }}</td><td class="n">{{ row.amount|money }} ₽</td>
+        <td class="w">{{ row.name }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Всего в очереди: {{ queue_b_size[0] }} названий на {{ queue_b_size[1]|money }} ₽.</p>
+  {% endif %}
+</section>
+</div>
+
+<p class="muted">Отпечаток конфигов с вашими правилами: <code>{{ fingerprint }}</code></p>
+{% endblock %}

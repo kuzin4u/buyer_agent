@@ -23,8 +23,11 @@ from fastapi.templating import Jinja2Templates
 from agent.adapters.receipts_fns import Pipeline, load_receipts
 from agent.adapters.receipts_fns.pipeline import to_history
 from agent.config import Config, dataset_path
+from agent.adapters.receipts_fns import diagnostics as D
 from agent.core import Parser, SCENARIOS, Session, run_scenario
-from agent.store import SettingsStore
+from agent.profile import for_period
+from agent.store import RulesStore
+from agent import reach as R
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = os.path.dirname(HERE)
@@ -111,11 +114,18 @@ templates.env.globals.update(UNIT=UNIT, PERIOD_RU=PERIOD_RU, BY_RU=BY_RU)
 
 # --- состояние процесса ---
 
-def load_history(include_candidates=False, base=BASE):
-    """Чеки ФНС → история. Единственное место оболочки, знающее про адаптер."""
+def load_history(include_candidates=False, base=BASE, store=None):
+    """Чеки ФНС → история. Единственное место оболочки, знающее про адаптер.
+
+    Пополнения словарей пользователя ложатся поверх конфигов здесь: дальше по
+    конвейеру разницы между правилом из файла и правилом из базы уже нет, и это
+    правильно — иначе пользовательское правило пришлось бы учитывать в каждом
+    месте, где читается конфиг.
+    """
+    brands, categories = store.overlay() if store is not None else ((), ())
+    config = Config.load(base).with_rules(brands=brands, categories=categories)
     receipts = load_receipts(dataset_path(base))
-    run = Pipeline(Config.load(base),
-                   include_candidates=include_candidates).run(receipts)
+    run = Pipeline(config, include_candidates=include_candidates).run(receipts)
     return to_history(run), run
 
 
@@ -123,14 +133,14 @@ def state(base=BASE, db_path=None):
     """Сессия, хранилище и разбор — собираются один раз на процесс."""
     with _lock:
         if _state["session"] is None:
-            store = SettingsStore(base=base,
-                                  db_path=db_path or os.environ.get(DB_ENV) or None)
+            store = RulesStore(base=base,
+                               db_path=db_path or os.environ.get(DB_ENV) or None)
             store.import_json_once()
             settings = store.load()
-            history, run = load_history(settings.include_candidates, base)
+            history, run = load_history(settings.include_candidates, base, store)
             session = Session(history=history, settings=settings, run=run,
-                              fingerprint=Config.load(base).fingerprint,
-                              _loader=lambda flag: load_history(flag, base))
+                              fingerprint=run.rules.fingerprint,
+                              _loader=lambda flag: load_history(flag, base, store))
             _state.update(session=session, store=store, parser=Parser(base=base))
         return _state["session"], _state["store"], _state["parser"]
 
@@ -312,3 +322,153 @@ async def settings_rating(request: Request, venue: str = Form(...),
         return page(request, "settings", settings_context(error=str(error)))
     session.apply(store.load())
     return RedirectResponse("/settings?saved=rating", status_code=303)
+
+
+# --- панель диагностики и пополнение словарей (SPEC §8.11) ---
+
+def _basket_groups(session):
+    """Группы недельной и месячной корзины — порядок полезности для очередей."""
+    week = {l.group for l in for_period(session.profile, "week",
+                                        session.settings).lines}
+    month = {l.group for l in for_period(session.profile, "month",
+                                         session.settings).lines}
+    return week, month
+
+
+def _effect(before, after, reclassified=None):
+    """Цепочка в виде, который можно положить в базу и показать позже.
+
+    `reclassified` — локальный эффект правила категории: сколько позиций теперь
+    отнесено к затронутой группе. Главная мера его не видит, потому что отвечает
+    на вопрос про магазины, а перенос шоколада из «молока» в «сладкое» покрытия
+    не меняет. Без этого числа верное исправление выглядело бы бесполезным.
+    """
+    return {"steps": [{"name": s.name, "unit": s.unit, "before": s.before,
+                       "after": s.after, "before_share": s.before_share,
+                       "after_share": s.after_share, "decisive": s.decisive,
+                       "delta": s.delta}
+                      for s in R.chain(before, after)],
+            "useful": R.useful(before, after),
+            "reclassified": reclassified}
+
+
+def diagnostics_context(**extra):
+    """Всё, что показывает панель. Собирается одним местом: страница рисуется и
+    после пополнения, и после отката, и после ошибки."""
+    session, store, _parser = state()
+    week, month = _basket_groups(session)
+    cov = D.coverage(session.run)
+    payload = {
+        "reach": R.measure(session.run, session.history, session.profile,
+                           settings=session.settings),
+        "candidates": D.brand_candidates(session.run, basket_groups=week,
+                                         month_groups=month, limit=20),
+        "prefixes": D.brandless_prefixes(session.run, limit=15),
+        "queue_a": D.queue_by_money(cov, limit=12),
+        "queue_b": D.queue_by_purchases(cov, session.run.rules.min_observations,
+                                        limit=12),
+        "queue_b_size": D.queue_b_size(cov, session.run.rules.min_observations),
+        "pack_sources": D.pack_sources(session.run),
+        "rules": store.rules(),
+        "groups": sorted({(g.group, g.dept or "") for g in
+                          session.profile.groups.values()}),
+        "fingerprint": session.fingerprint,
+        "week_groups": week,
+    }
+    payload.update(extra)
+    return payload
+
+
+@app.get("/diagnostics", name="diagnostics")
+def diagnostics(request: Request, rule: int = None):
+    """Панель: покрытие, очереди на пополнение и что дало каждое правило."""
+    _session, store, _parser = state()
+    shown = None
+    if rule is not None:
+        shown = next((r for r in store.rules() if r["id"] == rule), None)
+    return page(request, "diagnostics", diagnostics_context(shown=shown))
+
+
+@app.get("/diagnostics/positions", name="positions")
+def positions(request: Request, status: str = None, group: str = None,
+              search: str = None, brandless: bool = False, page_no: int = 1):
+    """Чем определена фасовка у каждой позиции — требование §8.11 буквально."""
+    session, _store, _parser = state()
+    size = 100
+    rows, total = D.positions(session.run, status=status, group=group,
+                              search=search, brandless=brandless,
+                              offset=(max(page_no, 1) - 1) * size, limit=size)
+    return page(request, "positions", {
+        "rows": rows, "total": total, "page_no": max(page_no, 1), "size": size,
+        "status": status, "group": group, "search": search or "",
+        "brandless": brandless,
+        "pack_sources": D.pack_sources(session.run),
+        "groups": sorted(session.profile.groups),
+        "pages": (total + size - 1) // size})
+
+
+@app.post("/diagnostics/rules")
+async def add_rule(request: Request, kind: str = Form(default="brand"),
+                   match: str = Form(default=""), brand: str = Form(default=""),
+                   group: str = Form(default=""), note: str = Form(default="")):
+    """Пополнить словарь и ИЗМЕРИТЬ, что это дало.
+
+    Меряется, а не предсказывается. Предсказать нельзя: правило бренда
+    расщепляет смешанный ключ, и осколки могут не добрать трёх наблюдений — тогда
+    сравнимых товаров станет не больше, а меньше. Это законный исход (Р-18), и
+    пользователь обязан увидеть его сразу, а не узнать через месяц.
+    """
+    session, store, _parser = state()
+    # Пустые поля проверяются здесь, а не валидатором формы: валидатор отвечает
+    # JSON'ом, а человеку нужна страница с понятным текстом.
+    if kind not in store.KINDS:
+        return page(request, "diagnostics", diagnostics_context(
+            error=f"Правила бывают только {', '.join(store.KINDS)}."))
+    payload = ({"brand": brand.strip(), "match": match.strip()} if kind == "brand"
+               else {"group": group.strip(), "match": match.strip()})
+    if not payload.get("brand" if kind == "brand" else "group") or not match.strip():
+        return page(request, "diagnostics", diagnostics_context(
+            error="Нужны и образец, и то, чем его считать."))
+
+    # Проверка — до записи и в одном месте: конфиг знает, что правило должно
+    # компилироваться и ссылаться на существующую группу.
+    try:
+        Config.load(BASE).with_rules(
+            brands=[payload] if kind == "brand" else (),
+            categories=[payload] if kind == "category" else ())
+    except ValueError as error:
+        return page(request, "diagnostics",
+                    diagnostics_context(error=str(error)))
+
+    before = R.measure(session.run, session.history, session.profile,
+                       settings=session.settings)
+    target = payload.get("group")
+    size_before = D.group_size(session.run, target) if target else None
+    rule_id = store.add(kind, payload, note=note.strip() or None)
+    if rule_id is None:
+        return page(request, "diagnostics", diagnostics_context(
+            error="Такое правило уже есть."))
+    session.reload_history()
+    after = R.measure(session.run, session.history, session.profile,
+                      settings=session.settings)
+    reclassified = None
+    if target:
+        reclassified = {"group": target, "before": size_before,
+                        "after": D.group_size(session.run, target)}
+    store.record_effect(rule_id, _effect(before, after, reclassified))
+    return RedirectResponse(f"/diagnostics?rule={rule_id}", status_code=303)
+
+
+@app.post("/diagnostics/rules/{rule_id}/delete")
+async def delete_rule(request: Request, rule_id: int):
+    """Откатить правило. Откат тоже меряется: иначе нечем проверить, что оно
+    мешало, — а правило, снизившее сравнимость, бывает (Р-18)."""
+    session, store, _parser = state()
+    before = R.measure(session.run, session.history, session.profile,
+                       settings=session.settings)
+    store.remove(rule_id)
+    session.reload_history()
+    after = R.measure(session.run, session.history, session.profile,
+                      settings=session.settings)
+    return page(request, "diagnostics",
+                diagnostics_context(rollback=_effect(before, after)))

@@ -49,6 +49,17 @@ class Session:
         self.revision += 1
         return self
 
+    def reload_history(self):
+        """Пересобрать историю заново — конвейером, с текущими конфигами.
+
+        Нужно после пополнения словарей: правило меняет разбор названий, а
+        значит и ключи, и сравнимость, и маршрут (SPEC §8.11). Пересчитать
+        профиль поверх старой истории здесь нельзя — в ней ещё прежние ключи.
+        """
+        if self._loader is not None:
+            self.history, self.run = self._loader(self.settings.include_candidates)
+        return self.rebuild()
+
     def apply(self, settings):
         """Новые настройки §3.3 → пересборка того, на что они влияют.
 

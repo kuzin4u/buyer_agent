@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- Пополнения словарей пользователем (SPEC §8.11, Р-4). Базовые config/*.json
+-- остаются курируемой основой и правятся вручную с прогоном; здесь то, что
+-- человек добавил про свои покупки, и оно ложится поверх при загрузке.
+CREATE TABLE IF NOT EXISTS rules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL,          -- 'brand' | 'category'
+    payload    TEXT NOT NULL,          -- JSON правила
+    note       TEXT,
+    effect     TEXT,                   -- JSON: что правило дало, измеренно
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS rules_unique ON rules (kind, payload);
 """
 
 
@@ -190,6 +202,72 @@ class SettingsStore:
                 (json.dumps({"file": JSON_FILENAME,
                              "found": imported is not None}, ensure_ascii=False),))
         return imported
+
+
+class RulesStore(SettingsStore):
+    """Пополнения словарей. Живут рядом с настройками: одно состояние, одна база.
+
+    Правило пользователя — не черновик основного конфига, а отдельный слой.
+    Смешивать их в один файл нельзя: основа курируется и проверяется прогоном
+    против эталона, а пополнения добавляются по одному, из браузера, про
+    конкретную позицию в чеке.
+    """
+
+    KINDS = ("brand", "category")
+
+    def add(self, kind, payload, note=None):
+        """Добавить правило. Повторное — не ошибка, а ничего.
+
+        Проверка регулярки и существования группы делается конфигом
+        (`Config.with_rules`), здесь — только хранение: правило должно
+        отвергаться в одном месте, иначе бот и веб начнут расходиться.
+        """
+        if kind not in self.KINDS:
+            raise ValueError(f"{kind!r}: бывают только {', '.join(self.KINDS)}")
+        blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        with self.conn:
+            cursor = self.conn.execute(
+                "INSERT OR IGNORE INTO rules (kind, payload, note, created_at) "
+                "VALUES (?, ?, ?, datetime('now'))", (kind, blob, note))
+        # rowcount, а не lastrowid: у пропущенной вставки lastrowid остаётся от
+        # предыдущей удачной, и вызывающий решил бы, что создал правило.
+        return cursor.lastrowid if cursor.rowcount else None
+
+    def remove(self, rule_id):
+        with self.conn:
+            self.conn.execute("DELETE FROM rules WHERE id = ?", (int(rule_id),))
+
+    def rules(self, kind=None):
+        """→ список правил, новые последними: порядок добавления — порядок смысла."""
+        sql = "SELECT * FROM rules"
+        args = ()
+        if kind:
+            sql += " WHERE kind = ?"
+            args = (kind,)
+        out = []
+        for row in self.conn.execute(sql + " ORDER BY id", args):
+            out.append({"id": row["id"], "kind": row["kind"],
+                        "note": row["note"], "created_at": row["created_at"],
+                        "effect": json.loads(row["effect"]) if row["effect"] else None,
+                        **json.loads(row["payload"])})
+        return out
+
+    def overlay(self):
+        """→ (правила брендов, правила категорий) для `Config.with_rules`."""
+        def clean(rule):
+            return {k: v for k, v in rule.items()
+                    if k not in ("id", "kind", "created_at", "effect")}
+        return ([clean(r) for r in self.rules("brand")],
+                [clean(r) for r in self.rules("category")])
+
+    def record_effect(self, rule_id, effect):
+        """Запомнить, что правило дало. Без этого «полезно ли оно» забывается."""
+        if rule_id is None:
+            return
+        with self.conn:
+            self.conn.execute(
+                "UPDATE rules SET effect = ? WHERE id = ?",
+                (json.dumps(effect, ensure_ascii=False), int(rule_id)))
 
 
 def load_settings(base=BASE, db_path=None):

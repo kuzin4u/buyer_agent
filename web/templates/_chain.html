@@ -1,0 +1,40 @@
+{% macro chain(effect, title) %}
+{% set moved = effect.reclassified and effect.reclassified.after != effect.reclassified.before %}
+<section class="card {% if effect.useful or moved %}good-inline{% else %}warn{% endif %}">
+  <h2>{{ title }}</h2>
+  <table class="chain">
+    <thead><tr><th>звено</th><th class="n">было</th><th class="n">стало</th>
+      <th class="n">изменение</th><th></th></tr></thead>
+    <tbody>
+    {% for s in effect.steps %}
+      <tr class="{% if s.decisive %}decisive{% endif %}">
+        <td>{% if s.decisive %}<b>{{ s.name }}</b>{% else %}{{ s.name }}{% endif %}
+          <i class="muted">{{ s.unit }}</i></td>
+        <td class="n">{{ s.before|money }}{% if s.before_share is not none %} <i class="muted">{{ s.before_share|pct }}</i>{% endif %}</td>
+        <td class="n">{{ s.after|money }}{% if s.after_share is not none %} <i class="muted">{{ s.after_share|pct }}</i>{% endif %}</td>
+        <td class="n {% if s.delta > 0 %}good{% elif s.delta < 0 %}bad{% endif %}">{{ s.delta|signed }}</td>
+        <td class="muted">{% if s.delta > 0 %}↑{% elif s.delta < 0 %}↓{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if effect.reclassified and effect.reclassified.after != effect.reclassified.before %}
+    <p><b>Переотнесено позиций: {{ (effect.reclassified.after - effect.reclassified.before)|signed }}</b>
+      в группе «{{ effect.reclassified.group|gtitle }}» — теперь
+      {{ effect.reclassified.after }} вместо {{ effect.reclassified.before }}.</p>
+    <p class="muted">Это исправление отнесения, а не прибавка к главному вопросу:
+      цепочка выше его и не должна показывать. Оно исправляет профиль, состав
+      корзины и динамику цен — там, где неверно отнесённая позиция считалась
+      чужой группой.</p>
+  {% endif %}
+  {% if effect.useful %}
+    <p>Это приблизило ответ на главный вопрос: сравнимых товаров или разведённых
+      строк стало больше.</p>
+  {% elif not (effect.reclassified and effect.reclassified.after != effect.reclassified.before) %}
+    <p><b>Ответ на главный вопрос не сдвинулся.</b> Так бывает законно: новая
+      марка встречалась в одном магазине или реже трёх раз, и до порога
+      сравнимости ей не хватает наблюдений, а не правила. Правило не вредно —
+      оно просто пока ничего не разблокировало.</p>
+  {% endif %}
+</section>
+{% endmacro %}

@@ -236,5 +236,187 @@ class WebTest(unittest.TestCase):
             self.assertNotIn("Ларёк", store.load().venue_ratings)
 
 
+@unittest.skipUnless(WEB, REASON)
+class DiagnosticsTest(unittest.TestCase):
+    """Панель диагностики и пополнение словарей (SPEC §8.11).
+
+    Главное здесь не таблицы, а мера: пополнение словаря — продолжение главной
+    функции («варианты моей корзины в разных магазинах»), и после каждого
+    правила видно, что стало со сравнимыми товарами и с разведённой корзиной.
+    Свой класс, потому что каждое правило пересобирает историю заново.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        os.environ["BUYER_AGENT_DB"] = os.path.join(cls.dir, "state.db")
+        import web.app as app_module
+        cls.module = app_module
+        cls.module.reset_state()
+        cls.client = TestClient(app_module.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.module.reset_state()
+        os.environ.pop("BUYER_AGENT_DB", None)
+
+    def get(self, url):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, url)
+        return response.text
+
+    def rules(self):
+        return self.module._state["store"].rules()
+
+    def reach(self):
+        from agent import reach
+        session = self.module._state["session"]
+        return reach.measure(session.run, session.history, session.profile,
+                             settings=session.settings)
+
+    def add(self, **data):
+        response = self.client.post("/diagnostics/rules", data=data,
+                                    follow_redirects=False)
+        return response
+
+    def tearDown(self):
+        """Правила не должны перетекать между тестами: каждое меняет историю."""
+        for rule in self.rules():
+            self.client.post(f"/diagnostics/rules/{rule['id']}/delete")
+
+    # --- панель ---
+
+    def test_panel_shows_the_whole_chain(self):
+        body = self.get("/diagnostics")
+        for name in ("распознана группа", "определена фасовка", "распознан бренд",
+                     "сравнимых товаров", "строк корзины разводится"):
+            self.assertIn(name, body.lower(), name)
+
+    def test_panel_numbers_agree_with_the_pages(self):
+        """Панель, противоречащая странице 8.6, хуже отсутствия панели."""
+        reach = self.reach()
+        body = self.get("/diagnostics")
+        self.assertIn(f">{reach.comparable_shown}<", body)
+        self.assertIn(f"{reach.split_lines} из {reach.basket_lines}", body)
+
+    def test_panel_prints_the_ceiling_next_to_the_answer(self):
+        """Зазор словарями не лечится, и молчать о нём нельзя (П-7)."""
+        reach = self.reach()
+        body = self.get("/diagnostics")
+        self.assertIn(f"{reach.ceiling_lines} из {reach.basket_lines}", body)
+        self.assertIn("ОДИН типичный товар", body)
+
+    def test_panel_does_not_promise_that_pools_need_one_rule(self):
+        body = self.get("/diagnostics")
+        self.assertIn("Смешанных пулов", body)
+        self.assertIn("расщепляет", body)
+
+    def test_effect_queue_is_shown_with_its_promise(self):
+        body = self.get("/diagnostics")
+        self.assertIn("Что разметить, чтобы прибавился сравнимый товар", body)
+        self.assertIn("ДСК ОГУРЦЫ КОРОТКОПЛОДНЫЕ 450Г", body)
+
+    def test_both_queues_and_pack_sources_are_on_the_panel(self):
+        body = self.get("/diagnostics")
+        self.assertIn("Очередь А", body)
+        self.assertIn("Очередь Б", body)
+        self.assertIn("Чем определена фасовка", body)
+
+    # --- позиции: §8.11 буквально ---
+
+    def test_positions_table_shows_why_each_pack_was_decided(self):
+        body = self.get("/diagnostics/positions?search=огурцы")
+        self.assertIn("чем определена", body)
+        self.assertIn("весовой", body)
+
+    def test_positions_can_be_filtered_to_brandless(self):
+        body = self.get("/diagnostics/positions?brandless=true")
+        self.assertIn("только без марки", body)
+
+    # --- пополнение с измерением ---
+
+    def test_replenishment_measures_the_main_question(self):
+        """То, ради чего всё: после правила видно движение ответа, а не процентов."""
+        before = self.reach()
+        response = self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
+        self.assertEqual(response.status_code, 303)
+        after = self.reach()
+        self.assertGreater(after.comparable_shown, before.comparable_shown)
+
+        body = self.get(response.headers["location"])
+        self.assertIn("Что дало правило", body)
+        self.assertIn("Сравнимо между магазинами", body)
+        self.assertIn("Разводится по магазинам", body)
+        self.assertIn("приблизило ответ на главный вопрос", body)
+
+    def test_rule_effect_is_remembered_and_shown_later(self):
+        self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
+        rule = self.rules()[0]
+        self.assertTrue(rule["effect"]["useful"])
+        decisive = [s for s in rule["effect"]["steps"] if s["decisive"]]
+        self.assertTrue(decisive)
+        self.assertIn("Ваши правила", self.get("/diagnostics"))
+
+    def test_rule_that_unlocks_nothing_says_so_instead_of_claiming_success(self):
+        response = self.add(kind="brand", brand="Оленица", match="ОЛЕНИЦ")
+        body = self.get(response.headers["location"])
+        self.assertIn("не сдвинулся", body)
+        self.assertIn("не хватает наблюдений", body)
+
+    def test_category_rule_reports_reclassified_positions(self):
+        """Исправление отнесения главную меру не двигает — и это не бесполезность."""
+        response = self.add(kind="category", group="vypechka", match="ШОК.*МОЛ")
+        self.assertEqual(response.status_code, 303)
+        body = self.get(response.headers["location"])
+        self.assertIn("Переотнесено позиций", body)
+        self.assertIn("исправление отнесения", body)
+
+    def test_user_rule_changes_the_answer_of_8_6(self):
+        """Правило должно дойти до страницы, а не только до панели."""
+        before = self.get("/venues")
+        self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
+        after = self.get("/venues")
+        self.assertNotEqual(before, after)
+        self.assertIn("ДСК", after)
+
+    def test_rollback_is_measured_too(self):
+        self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
+        with_rule = self.reach()
+        rule_id = self.rules()[0]["id"]
+        response = self.client.post(f"/diagnostics/rules/{rule_id}/delete")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Что изменил откат правила", response.text)
+        self.assertLess(self.reach().comparable_shown, with_rule.comparable_shown)
+        self.assertEqual(self.rules(), [])
+
+    def test_broken_rule_is_refused_with_a_page(self):
+        response = self.client.post("/diagnostics/rules",
+                                    data={"kind": "brand", "brand": "X", "match": "["})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("не регулярное выражение", response.text)
+        self.assertEqual(self.rules(), [])
+
+    def test_rule_for_unknown_group_is_refused(self):
+        response = self.client.post("/diagnostics/rules",
+                                    data={"kind": "category", "group": "нетакой",
+                                          "match": "X"})
+        self.assertIn("которой нет", response.text)
+        self.assertEqual(self.rules(), [])
+
+    def test_empty_rule_is_refused(self):
+        response = self.client.post("/diagnostics/rules",
+                                    data={"kind": "brand", "brand": "", "match": ""})
+        self.assertIn("Нужны и образец", response.text)
+        self.assertEqual(self.rules(), [])
+
+    def test_duplicate_rule_is_refused(self):
+        self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
+        response = self.client.post("/diagnostics/rules",
+                                    data={"kind": "brand", "brand": "ДСК",
+                                          "match": "ДСК ОГУРЦЫ"})
+        self.assertIn("уже есть", response.text)
+        self.assertEqual(len(self.rules()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

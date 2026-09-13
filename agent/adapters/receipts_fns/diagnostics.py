@@ -146,11 +146,14 @@ def comparability(run, cov=None):
 
 
 def brandless_prefixes(run, limit=20):
-    """Очередь на пополнение brands.json: топ префиксов без бренда (SPEC §6).
+    """Очередь по ОБЪЁМУ: топ токенов у позиций без распознанной марки (§6).
 
-    Префикс берётся эвристикой — первый токен названия длиной от трёх букв,
-    не совпавший ни с одним правилом словаря. Эвристика черновая и будет
-    уточнена в С6 вместе с панелью; для очереди её достаточно.
+    Префикс берётся эвристикой — первый токен названия длиной от трёх букв, не
+    совпавший ни с одним правилом словаря. Эвристику обещали уточнить в С6; она
+    уточнена не здесь, а рядом: `brand_candidates` отвечает на другой вопрос — не
+    «чего больше всего», а «что даст ответ». Наверху этой очереди стоят «КУР»,
+    «ПЕСОК», «СЫР» — слова товара, а не марки, и это её честный предел: она
+    показывает, где сосредоточена масса неразобранного, а не что размечать.
     """
     counter = Counter()
     for item in run.items:
@@ -212,3 +215,121 @@ def unmatched_names(run, cov=None, limit=15):
     """Совместимость: очередь Б без порога."""
     cov = cov or coverage(run)
     return cov.unmatched.most_common(limit)
+
+
+@dataclass
+class BrandCandidate:
+    """Название, которое само по себе уже сравнимо между магазинами.
+
+    Зачем отдельная очередь. Соблазнительно считать очередью брендов смешанные
+    ключи, набравшие наблюдений: их 33, и кажется, что каждому не хватает одной
+    марки. Это неправда — внутри такого ключа лежат разные товары («— · —% ·
+    0,1 кг» собрал шоколад из Перу, белёвскую пастилу и жгучий перец), и правило
+    бренда не разблокирует пул, а расщепляет его на осколки ниже порога.
+
+    Здесь условие проверяемое, а не предполагаемое: ЭТО ЖЕ название встречается
+    не меньше `min_observations` раз в каждом из не менее двух магазинов. Значит
+    размеченное, оно даст сравнимый товар — не «вероятно», а точно, потому что
+    наблюдения уже есть и они про один и тот же товар.
+    """
+
+    name: str
+    group: str
+    unit: str
+    purchases: int
+    venues: int
+    spread: float             # разрыв медиан между магазинами, ₽ за единицу
+    in_basket: bool = False   # группа входит в недельную корзину
+    in_month: bool = False
+
+
+def brand_candidates(run, min_observations=None, basket_groups=(),
+                     month_groups=(), limit=20):
+    """Очередь по ЭФФЕКТУ: что разметить, чтобы прибавился сравнимый товар.
+
+    Порядок — сначала то, что стоит в недельной корзине пользователя, потом в
+    месячной, потом по денежному разрыву между магазинами. Это и есть порядок
+    полезности: строка недельной корзины — прямой ответ на главный вопрос,
+    а разрыв в рублях — то, что этот ответ стоит.
+    """
+    min_observations = min_observations or run.rules.min_observations
+    by_name = defaultdict(list)
+    for item in run.items:
+        if item.weighted or item.pack_source is None or item.key is None:
+            continue
+        if item.brand != UNKNOWN:
+            continue
+        by_name[(item.name, item.key.group, item.key.unit)].append(item)
+
+    rows = []
+    for (name, group, unit), items in by_name.items():
+        by_venue = defaultdict(list)
+        for item in items:
+            if item.venue and item.unit_price:
+                by_venue[item.venue].append(item.unit_price)
+        enough = [statistics.median(p) for p in by_venue.values()
+                  if len(p) >= min_observations]
+        if len(enough) < 2:
+            continue
+        rows.append(BrandCandidate(
+            name=name, group=group, unit=unit, purchases=len(items),
+            venues=len(enough), spread=max(enough) - min(enough),
+            in_basket=group in set(basket_groups),
+            in_month=group in set(month_groups)))
+    rows.sort(key=lambda r: (not r.in_basket, not r.in_month, -r.spread, r.name))
+    return rows[:limit] if limit else rows
+
+
+def pack_sources(run, segments=None):
+    """Чем определена фасовка — сводка по всем позициям (SPEC §8.11).
+
+    Требование §8.11 буквально: показать, чем определена фасовка у КАЖДОЙ
+    позиции. Сводка — вход в эту таблицу, сама таблица строится `positions`.
+    """
+    segments = segments or run.food_tiers
+    counter = Counter()
+    for item in run.items:
+        if item.segment not in segments:
+            continue
+        counter[item.status] += 1
+    return counter.most_common()
+
+
+def positions(run, status=None, group=None, search=None, brandless=False,
+              segments=None, offset=0, limit=100):
+    """Позиции с причиной, по которой фасовка определена так, а не иначе.
+
+    Возвращает (строки, сколько всего подошло). Страницами, потому что позиций
+    почти двадцать тысяч, а ответ нужен про конкретную: пользователь приходит
+    сюда из очереди, с названием в руках.
+    """
+    segments = segments or run.food_tiers
+    needle = (search or "").upper().replace("Ё", "Е").strip()
+    found = []
+    for item in run.items:
+        if item.segment not in segments:
+            continue
+        if status and item.status != status:
+            continue
+        if group and item.group != group:
+            continue
+        if brandless and (item.brand != UNKNOWN or item.weighted
+                          or item.pack_source is None):
+            continue
+        if needle and needle not in item.match.upper():
+            continue
+        found.append(item)
+    return found[offset:offset + limit], len(found)
+
+
+def group_size(run, group, segments=None):
+    """Сколько позиций отнесено к группе. Локальный эффект правила категории.
+
+    Главная мера (`agent.reach`) отвечает на вопрос про магазины, и правило,
+    переносящее молочный шоколад из «молока» в «сладкое», её не двигает — оно
+    исправляет отнесение, а не покрытие. Без этого числа такое правило выглядело
+    бы бесполезным, и пользователь откатил бы верное исправление.
+    """
+    segments = segments or run.food_tiers
+    return sum(1 for item in run.items
+               if item.segment in segments and item.group == group)
