@@ -138,6 +138,7 @@ config/
 data/
   receipts.json               1744 чека, 2017–2026, 19 056 позиций
 docs/
+  UNCERTAINTY.md              реестр неопределённости: чего агент не знает и почём
   DEPLOY.md                   развёртывание: VPS, systemd, nginx, long polling
   DATASET.md                  схема датасета и контрольные цифры
   BASELINE.txt                эталонный вывод validate.py
