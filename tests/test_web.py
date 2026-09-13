@@ -372,6 +372,52 @@ class PlanPageTest(unittest.TestCase):
         self.assertIn("выбран по цене", body)
         self.assertIn("по умолчанию", body)
 
+    def test_sending_the_list_queues_it_for_the_bot(self):
+        """Веб наружу не ходит: он кладёт готовое в очередь, отправляет бот."""
+        response = self.client.post(
+            "/plan/send", data={"period": "week", "choice": "split",
+                                "amount": "2000"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("поставлен в очередь", flat(response.text))
+
+        taken = self.client.get("/api/outbox").json()["items"]
+        self.assertEqual(len(taken), 1)
+        self.assertEqual(taken[0]["kind"], "plan")
+        payload = taken[0]["payload"]
+        self.assertTrue(payload["venues"], "список ушёл без магазинов")
+        self.assertIn("Врозь", payload["variant"])
+
+        # Отдано один раз: отметка ставится до отправки, и повтор раздражает
+        # сильнее пропуска.
+        self.assertEqual(self.client.get("/api/outbox").json()["items"], [])
+
+    def test_the_queued_list_carries_the_coverage_caveat(self):
+        """Оговорка про магазины обязана дойти до мессенджера, а не остаться
+        на странице: список без неё выглядит как совет, где выбора не было."""
+        self.client.post("/plan/send", data={"period": "week",
+                                             "choice": "split"})
+        payload = self.client.get("/api/outbox").json()["items"][0]["payload"]
+        notes = " ".join(payload["notes"])
+        self.assertIn("не потому, что там дешевле", notes)
+        plan = self.plan(choice="split")
+        self.assertIn(f"{plan.priced} из {plan.considered}", notes)
+
+        defaulted = [line for venue in payload["venues"]
+                     for line in venue["lines"] if not line["chosen"]]
+        self.assertTrue(defaulted, "в списке нет строк с магазином по умолчанию")
+        for line in defaulted:
+            self.assertTrue(line["reason"], "строка без причины")
+
+    def test_the_queued_list_carries_no_raw_numbers_to_recompute(self):
+        """Бот получает готовые строки: считать ему нечего и нечем (ОА-1)."""
+        self.client.post("/plan/send", data={"period": "week",
+                                             "choice": "single"})
+        payload = self.client.get("/api/outbox").json()["items"][0]["payload"]
+        for venue in payload["venues"]:
+            for line in venue["lines"]:
+                self.assertIsInstance(line["amount"], str)
+                self.assertIn("₽", line["amount"])
+
     def test_free_query_reaches_the_plan(self):
         """«Продукты на неделю» словами ведёт на тот же экран, что кнопка."""
         response = self.client.get("/?q=продукты на неделю",

@@ -288,10 +288,81 @@ def plan(request: Request, period: str = "week", amount: float = None,
     вопросы и нужны, когда вопрос именно такой. Здесь они сведены в один экран
     для одного вопроса — «что брать на неделю и где».
     """
-    _session, _store, parser = state()
+    _session, store, parser = state()
     return page(request, "plan",
                 run("plan", period=period, amount=amount, choice=choice),
-                titles_variant=parser.variants("plan"))
+                titles_variant=parser.variants("plan"), queued=store.queued())
+
+
+def plan_message(plan, variant, titles):
+    """План → сообщение для мессенджера: готовые строки, считать нечего.
+
+    Форматирует оболочка, а не бот. У неё уже есть и склонение, и названия
+    групп из конфига, и правило печати рубля; дублировать это в боте значило бы
+    завести второе место, где числа превращаются в текст, — и однажды они там
+    разойдутся. Бот остаётся транспортом (ОА-1): он склеивает готовые строки.
+    """
+    venues = []
+    for venue, lines in variant.by_venue():
+        venues.append({
+            "venue": venue,
+            "lines": [{
+                "label": line.label,
+                "group": gtitle(line.group),
+                "chosen": bool(line.venue_known),
+                "reason": line.reason,
+                "amount": (f"{money(line.cost)} ₽" if line.priced
+                           else f"{money(line.amount)} ₽ обычно"),
+            } for line in lines],
+        })
+    notes = [
+        f"Магазин выбран сравнением у {plan.priced} из {plan.considered} строк "
+        f"({pct(plan.covered)} корзины). Остальные {plan.unpriced} — в "
+        f"«{plan.main_venue}» не потому, что там дешевле, а потому что "
+        f"сравнить не с чем.",
+    ]
+    if variant.saving:
+        notes.append(f"Врозь дешевле на {money(variant.saving)} ₽ — это "
+                     f"{pct(variant.saving_share)} сравнимой части, и стоит "
+                     f"{plan.extra_stops} заездов сверх одного.")
+    if variant.dropped:
+        notes.append(
+            f"Не берём {len(variant.dropped)} "
+            + ", ".join(gtitle(l.group) for l in variant.dropped)
+            + f" на {money(variant.dropped_amount)} ₽: потребность остаётся "
+              f"незакрытой.")
+    return {
+        "kind": "plan",
+        "title": f"Продукты на {PERIOD_ACC.get(plan.period, plan.period)}",
+        "variant": titles.get(variant.id, variant.id),
+        "venues": venues,
+        "notes": notes,
+    }
+
+
+@app.post("/plan/send")
+async def plan_send(request: Request, period: str = Form(default="week"),
+                    choice: str = Form(default=None),
+                    amount: float = Form(default=None)):
+    """Поставить список в очередь отправки. Отправляет бот (ОА-1).
+
+    Ядро решает, что именно уйдёт, и складывает готовое в очередь; бот заберёт
+    его при следующем опросе. Сам веб наружу не ходит — ни за моделью, ни за
+    графиком, ни в мессенджер.
+    """
+    _session, store, parser = state()
+    payload = run("plan", period=period, amount=amount, choice=choice)
+    titles = parser.variants("plan")
+    store.queue("plan", plan_message(payload["plan"], payload["variant"], titles))
+    return page(request, "plan", payload, titles_variant=titles,
+                sent=True, queued=store.queued())
+
+
+@app.get("/api/outbox")
+def api_outbox(limit: int = 5):
+    """Что пора отправить. Решает ядро, помнит ядро, отправляет бот (ОА-1)."""
+    _session, store, _parser = state()
+    return {"items": store.take(limit)}
 
 
 @app.get("/basket", name="basket")

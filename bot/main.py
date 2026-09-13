@@ -119,6 +119,15 @@ async def push_loop(bot, chat_id, seconds=POLL_SECONDS):
             if text:
                 await bot.send_message(chat_id, text,
                                        disable_web_page_preview=True)
+            # Очередь отправки: списки покупок, которые человек отправил себе
+            # со страницы плана. Что отправлять и кому — решило ядро, здесь
+            # только пересылка.
+            queued = await asyncio.to_thread(api.outbox)
+            for item in queued.get("items") or ():
+                message = fmt.outgoing(item)
+                if message:
+                    await bot.send_message(chat_id, message,
+                                           disable_web_page_preview=True)
         except api.CoreError as error:
             log.warning("напоминания не получены: %s", error)
         except Exception as error:            # push не должен ронять бота

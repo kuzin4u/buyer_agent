@@ -194,4 +194,22 @@
   </section>
 {% endif %}
 
+<section class="card">
+  <h2>Список в Telegram</h2>
+  <form class="filters" action="/plan/send" method="post">
+    <input type="hidden" name="period" value="{{ period }}">
+    <input type="hidden" name="choice" value="{{ plan.chosen }}">
+    {% if amount %}<input type="hidden" name="amount" value="{{ amount|round|int }}">{% endif %}
+    <button type="submit">Отправить список в Telegram</button>
+  </form>
+  {% if sent %}
+    <p class="good">Список поставлен в очередь. Бот заберёт его при следующем
+      опросе ядра и пришлёт в ваш чат.</p>
+  {% endif %}
+  <p class="muted">Отправляет бот, а не эта страница: наружу ходит только он
+    (ОА-1). Ядро кладёт в очередь готовый список — с тем же покрытием и той же
+    оговоркой про магазины, что и здесь, — а бот его пересылает, ничего не
+    досчитывая.{% if queued %} В очереди сейчас: {{ queued }}.{% endif %}</p>
+</section>
+
 {% endblock %}

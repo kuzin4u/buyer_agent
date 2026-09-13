@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS sent (
 -- ЭФФЕКТ каждой выгрузки: сколько чеков она принесла нового. Эффект
 -- пересчитать задним числом нельзя, он зависит от того, что уже было в корпусе
 -- на тот момент, — поэтому меряется при приёме и хранится (Р-24).
+-- Что ядро попросило отправить в мессенджер. Очередь живёт здесь, а не в боте:
+-- бот не хранит ничего между апдейтами (ОА-1). Решает, что отправлять, ядро;
+-- бот забирает готовое и пересылает.
+CREATE TABLE IF NOT EXISTS outbox (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    kind       TEXT NOT NULL,      -- что это: 'plan' и далее
+    payload    TEXT NOT NULL,      -- JSON: готовые строки, считать нечего
+    taken_at   TEXT                -- когда отдано транспорту
+);
 CREATE TABLE IF NOT EXISTS exports (
     sha256      TEXT PRIMARY KEY,   -- отпечаток файла: он же защита от повтора
     name        TEXT NOT NULL,      -- имя в приёмнике
@@ -335,6 +345,42 @@ class Notifications(RulesStore):
             out.append(payload)
         return out
 
+
+    # --- очередь отправки в мессенджер (ОА-1) ---
+
+    def queue(self, kind, payload):
+        """Поставить сообщение в очередь. Что отправлять — решает ядро."""
+        with self.conn:
+            cursor = self.conn.execute(
+                "INSERT INTO outbox (created_at, kind, payload) "
+                "VALUES (datetime('now'), ?, ?)",
+                (kind, json.dumps(payload, ensure_ascii=False)))
+        return cursor.lastrowid
+
+    def take(self, limit=5):
+        """Отдать неотправленное транспорту и сразу пометить отданным.
+
+        Отметка ставится ДО отправки, а не после, — то же правило, что у
+        напоминаний: сбой сети у транспорта тогда даёт пропуск, а не повтор.
+        Повторно присланный список покупок раздражает сильнее, чем неприсланный.
+        """
+        rows = list(self.conn.execute(
+            "SELECT id, kind, payload FROM outbox WHERE taken_at IS NULL "
+            "ORDER BY id LIMIT ?", (int(limit),)))
+        if not rows:
+            return []
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE outbox SET taken_at = datetime('now') WHERE id = ?",
+                [(row["id"],) for row in rows])
+        return [{"id": row["id"], "kind": row["kind"],
+                 "payload": json.loads(row["payload"])} for row in rows]
+
+    def queued(self):
+        """Сколько ещё не отдано транспорту — для страницы, а не для бота."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM outbox WHERE taken_at IS NULL").fetchone()
+        return row["n"]
 
     # --- реестр принятых выгрузок (Р-4: чеки в базу не кладутся) ---
 

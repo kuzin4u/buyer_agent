@@ -45,3 +45,8 @@ def ask(query=None, scenario=None, base=None):
 
 def notifications(base=None):
     return get("/api/notifications", base=base)
+
+
+def outbox(base=None):
+    """Что ядро просит отправить. Ядро же и помнит, что уже отдано (ОА-1)."""
+    return get("/api/outbox", base=base)

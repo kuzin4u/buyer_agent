@@ -124,6 +124,26 @@ class FormatTest(unittest.TestCase):
         self.assertIn("53", text)
         self.assertIn("6", text)
 
+    def test_plan_list_prints_the_list_and_marks_defaulted_shops(self):
+        """Список покупок доходит до текста вместе с оговоркой про магазин."""
+        text = fmt.outgoing({"kind": "plan", "payload": {
+            "title": "Продукты на неделю", "variant": "Врозь по магазинам",
+            "venues": [{"venue": "Глобус", "lines": [
+                {"label": "ЛУК", "amount": "527 ₽", "chosen": True,
+                 "reason": None},
+                {"label": "СМЕТАНА", "amount": "185 ₽ обычно", "chosen": False,
+                 "reason": "марка не распознана"}]}],
+            "notes": ["Магазин выбран у 3 из 8 строк."]}})
+        self.assertIn("Глобус", text)
+        self.assertIn("527 ₽", text)
+        self.assertIn("185 ₽ обычно", text)
+        self.assertIn("марка не распознана", text)
+        self.assertIn("3 из 8", text)
+
+    def test_unknown_message_kind_is_not_sent_as_garbage(self):
+        self.assertIsNone(fmt.outgoing({"kind": "неизвестно", "payload": {}}))
+        self.assertIsNone(fmt.outgoing(None))
+
     def test_web_link_is_added_when_configured(self):
         text = fmt.answer({"understood": True, "facts": "a: 1"},
                           web_url="http://example/venues")
