@@ -69,7 +69,7 @@
   {% else %}
   <section class="card">
     <h2>Разрыв цены между магазинами</h2>
-    <canvas id="venues-chart" height="140"></canvas>
+    <div class="chart"><canvas id="venues-chart"></canvas></div>
     <script id="venues-data" type="application/json">{{ chart|tojson }}</script>
   </section>
   <section class="card">

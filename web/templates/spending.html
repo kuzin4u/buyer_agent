@@ -31,7 +31,7 @@
 {% if growth %}
 <section class="card">
   <h2>{{ months }} мес против предыдущих {{ months }}</h2>
-  <canvas id="growth-chart" height="130"></canvas>
+  <div class="chart"><canvas id="growth-chart"></canvas></div>
   <script id="growth-data" type="application/json">{{ chart|tojson }}</script>
 </section>
 <section class="card">
@@ -54,7 +54,7 @@
 {% else %}
 <section class="card">
   <h2>Траты в разрезе «{{ by|by_ru }}»</h2>
-  <canvas id="spending-chart" height="130"></canvas>
+  <div class="chart"><canvas id="spending-chart"></canvas></div>
   <script id="spending-data" type="application/json">{{ chart|tojson }}</script>
 </section>
 <section class="card">

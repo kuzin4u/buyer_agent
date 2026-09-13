@@ -29,9 +29,23 @@
      поэтому они подписаны в легенде — складывать их нельзя. */
   var prices = data("prices-data");
   if (prices && prices.length) {
+    /* Ось строит ядро, а не Chart.js: на категорийной оси категории идут в
+       порядке ПЕРВОГО появления в рядах, и годы выстраиваются как попало —
+       2019, 2021, 2023, 2025, 2024. Линия при этом соединяет точки в этом же
+       порядке, и график показывает динамику, которой не было. Общий список
+       годов собираем сами и сортируем числом. */
+    var years = [];
+    prices.forEach(function (row) {
+      row.points.forEach(function (point) {
+        if (years.indexOf(point.x) === -1) years.push(point.x);
+      });
+    });
+    years.sort(function (a, b) { return Number(a) - Number(b); });
+
     new Chart(document.getElementById("prices-chart"), {
       type: "line",
       data: {
+        labels: years,
         datasets: prices.map(function (row, i) {
           return {
             label: row.label + " (" + row.unit + ")",

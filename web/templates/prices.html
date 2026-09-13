@@ -16,7 +16,7 @@
 {% else %}
 
 <section class="card kpis">
-  <div><b>{{ summary.keys }}</b><span>рядов, {{ summary.span[0] }}–{{ summary.span[1] }}</span></div>
+  <div><b>{{ summary['keys'] }}</b><span>рядов, {{ summary.span[0] }}–{{ summary.span[1] }}</span></div>
   <div><b>{{ summary.up }}</b><span>подорожало</span></div>
   <div><b>{{ summary.down }}</b><span>подешевело</span></div>
   <div><b>{{ summary.median_pct|signed_pct }}</b><span>типичное изменение</span></div>
@@ -24,7 +24,7 @@
 
 <section class="card">
   <h2>Как менялась цена</h2>
-  <canvas id="prices-chart" height="120"></canvas>
+  <div class="chart"><canvas id="prices-chart"></canvas></div>
   <p class="muted">На графике первые {{ chart|length }} рядов таблицы. Единицы у
     рядов разные (₽/кг, ₽/л, ₽/шт) — числа из разных рядов не складываются.</p>
   <script id="prices-data" type="application/json">{{ chart|tojson }}</script>

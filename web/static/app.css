@@ -75,6 +75,13 @@ button.primary { padding: 10px 20px; font-size: 15px; }
 .bar i { display: block; height: 8px; background: var(--accent); border-radius: 4px; }
 .swap { color: var(--good); font-weight: 700; }
 sup { color: var(--warn); }
+/* Высоту холста задаёт обёртка, а не сам холст. Chart.js в режиме
+   responsive + maintainAspectRatio:false берёт высоту у родителя; если родитель
+   её не задаёт, высота приходит от самого холста, и каждый пересчёт добавляет к
+   ней ещё. Холст уезжает на тысячи пикселей вниз, на экране остаётся пустая
+   сетка — график «молча не работает». Отсюда position: relative и явные
+   пиксели: это требование Chart.js к контейнеру, а не украшение. */
+.chart { position: relative; height: 320px; }
 canvas { max-width: 100%; }
 footer { padding: 16px 20px; color: var(--muted); font-size: 12px;
   border-top: 1px solid var(--line); }
