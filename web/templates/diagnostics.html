@@ -20,21 +20,64 @@
     <div><b>{{ reach.branded_share|pct(1) }}</b><span>распознан бренд, {{ reach.branded|money }} из {{ reach.unit_items|money }}</span></div>
     <div class="decisive-kpi"><b>{{ reach.comparable_shown }}</b><span>сравнимых товаров (8.6)</span></div>
     <div class="decisive-kpi"><b>{{ reach.split_lines }} из {{ reach.basket_lines }}</b><span>строк корзины разводится, {{ reach.split_share|pct }}</span></div>
+    <div><b>{{ reach.ceiling_lines }}</b><span>потолок по покрытию</span></div>
     <div><b>{{ reach.saving|money }} ₽</b><span>экономия маршрута, {{ reach.saving_share|pct }}</span></div>
   </div>
 </section>
 
-<div class="two">
-<section class="card">
-  <h2>Потолок разведённости: {{ reach.ceiling_lines }} из {{ reach.basket_lines }}</h2>
-  <p>У {{ reach.ceiling_lines }} строк недельной корзины в группе <b>есть</b> сравнимый
-    товар, а разводится {{ reach.split_lines }}. Разница — не непокрытие.</p>
-  <p class="muted">Маршрут 8.6 берёт у группы ОДИН типичный товар — тот, что вы
-    покупаете чаще всего. Если сравним другой товар той же группы, строка всё
-    равно не разводится. Пополнение словарей этот зазор не лечит: он в устройстве
-    маршрута, и решать его надо отдельно (журнал решений, П-7). Поэтому правило
-    бренда попадает в «сравнимые товары» сразу, а в «разведённые строки» — только
-    если размеченный товар у группы типичный.</p>
+<section class="card" id="tasks">
+  <h2>Чего не хватает строкам корзины</h2>
+  <p class="muted">Недельная корзина разводится по магазинам на
+    {{ reach.split_lines }} строк из {{ reach.basket_lines }}{% if reach.substituted_lines %},
+    и {{ reach.substituted_lines }} из них сравнены по другой вашей регулярной марке
+    той же группы{% endif %}. Вот остальные — и чего каждой не хватает. Сверху то,
+    с чем можно что-то сделать, и дороже по деньгам корзины.</p>
+  {% if not tasks %}
+    <p>Вся корзина разводится по магазинам: заданий нет.</p>
+  {% else %}
+  <table>
+    <thead><tr><th></th><th>строка</th><th class="n">в корзине</th>
+      <th>чего не хватает</th><th>с чем работать</th></tr></thead>
+    <tbody>
+    {% for t in tasks %}
+      <tr>
+        <td>{% if t.actionable %}<b class="good">задание</b>{% else %}<span class="muted">факт</span>{% endif %}</td>
+        <td class="w" title="{{ t.group }}">{{ t.group|gtitle }}<br>
+          <i class="muted">{{ t.typical.label if t.typical else "нет типичного товара" }}</i></td>
+        <td class="n">{{ t.amount|money }} ₽</td>
+        <td>{{ t.reason }}{% if t.venue %} <b>({{ t.venue }})</b>{% endif %}
+          {% if t.alternative and t.alternative_blocker %}<br><i class="muted">сравнимая марка в группе есть —
+            «{{ t.alternative.label }}»,
+            {% if t.alternative_blocker == "unit" %}но она продаётся в другой единице
+              ({{ t.alternative.unit|unit }} против {{ t.typical.unit|unit }}), а такие
+              цены несопоставимы{% elif t.alternative_blocker == "share" %}но вы берёте её
+              {{ t.alternative_share|pct }} от самой частой — это уже не вторая ваша
+              марка, а разовая покупка{% endif %}</i>{% endif %}</td>
+        <td>
+          {% if t.actionable and t.names %}
+            <form action="/diagnostics/rules" method="post" class="inline">
+              <input type="hidden" name="kind" value="brand">
+              <input name="match" value="{{ t.names[0][:20] }}" size="18">
+              <input name="brand" placeholder="марка" required size="10">
+              <button type="submit">Разметить</button>
+            </form>
+            <i class="muted">внутри: {{ t.names|join(", ") }}</i>
+          {% elif t.actionable %}
+            <a href="/diagnostics/positions?group={{ t.group }}">позиции группы</a>
+          {% else %}
+            <span class="muted">пополнением словаря не лечится</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">«Факт» — не недоделка, а свойство ваших покупок: товар, который
+    вы берёте от трёх раз только в одном магазине, сравнивать не с чем, и никакое
+    правило этого не изменит. Выдавать такое за задание значило бы гонять человека
+    за невозможным. Потолок по покрытию — {{ reach.ceiling_lines }} из
+    {{ reach.basket_lines }} строк: у них в группе есть хоть один сравнимый товар.</p>
+  {% endif %}
 </section>
 
 <section class="card">
@@ -48,7 +91,6 @@
     наблюдения. Поэтому это указатель объёма работы, а не обещание прибавки, и
     уменьшаться он может одновременно с ростом ответа.</p>
 </section>
-</div>
 
 <section class="card">
   <h2>Что разметить, чтобы прибавился сравнимый товар</h2>

@@ -257,13 +257,26 @@ def cmd_venues(args):
         print(f"  экономия {money(route.saving_abs)} ₽ ({route.saving_pct:.0%})\n")
         print(f"    {'товар':32}{'магазин':14}{'цена':>9}{'экономия':>10}")
         for line in route.lines:
-            print(f"    {line.key.label[:32]:32}{line.venue[:14]:14}"
+            mark = " ←" if line.substituted else "  "
+            print(f"   {mark}{line.key.label[:31]:31}{line.venue[:14]:14}"
                   f"{line.unit_price:9.0f}{signed(line.saving):>10}")
         print(f"\n  Посчитано по {len(route.lines)} строкам из "
-              f"{len(route.lines) + len(route.skipped)} — это {route.covered:.0%} "
-              f"корзины.")
-        print("  Остальные строки сравнить не с чем: цена известна не у двух")
-        print("  магазинов сразу. В экономию они не засчитаны.")
+              f"{route.considered} — это {route.covered:.0%} корзины.")
+        if route.substituted:
+            print(f"  ← {len(route.substituted)}: типичный товар сравнить не с чем, "
+                  f"цена взята по другой")
+            print("     вашей регулярной марке той же группы — проверьте, за чем едете:")
+            for line in route.substituted:
+                print(f"       {line.key.label[:30]:30} вместо "
+                      f"{line.instead_of.label[:28]:28} ({line.share_of_typical:.0%})")
+        print(f"  Не вошло: {len(route.skipped)} строк сравнить не с чем — цена "
+              f"известна не у двух")
+        print("  магазинов сразу.", end="")
+        if route.outside_baseline:
+            print(f" Ещё {len(route.outside_baseline)}: сравнить можно, но у "
+                  f"базового", end="")
+            print("\n  магазина этого товара нет.", end="")
+        print(" В экономию они не засчитаны.")
         return
 
     head("8.6 ГДЕ ЧТО ДЕШЕВЛЕ — медиана цены по магазинам")

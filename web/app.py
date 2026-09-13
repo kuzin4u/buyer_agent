@@ -369,6 +369,8 @@ def diagnostics_context(**extra):
                                         limit=12),
         "queue_b_size": D.queue_b_size(cov, session.run.rules.min_observations),
         "pack_sources": D.pack_sources(session.run),
+        "tasks": R.tasks(session.run, session.history, session.profile,
+                         settings=session.settings),
         "rules": store.rules(),
         "groups": sorted({(g.group, g.dept or "") for g in
                           session.profile.groups.values()}),

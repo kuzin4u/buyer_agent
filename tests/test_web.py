@@ -10,6 +10,7 @@
 """
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,16 @@ except ImportError:                                   # оболочка не у
 
 REASON = ("веб-оболочка не установлена: pip install -r requirements.txt "
           "(ядро от неё не зависит, Р-6)")
+
+def flat(markup):
+    """Текст страницы со сжатыми пробелами.
+
+    Шаблон переносит фразы по строкам, и проверка по подстроке ломается на любом
+    переносе — на смысл при этом ничего не влияет. Сжимаем пробелы, чтобы тест
+    проверял, что написано, а не как свёрстано.
+    """
+    return re.sub(r"\s+", " ", markup)
+
 
 
 @unittest.skipUnless(WEB, REASON)
@@ -295,16 +306,50 @@ class DiagnosticsTest(unittest.TestCase):
     def test_panel_numbers_agree_with_the_pages(self):
         """Панель, противоречащая странице 8.6, хуже отсутствия панели."""
         reach = self.reach()
-        body = self.get("/diagnostics")
+        body = flat(self.get("/diagnostics"))
         self.assertIn(f">{reach.comparable_shown}<", body)
         self.assertIn(f"{reach.split_lines} из {reach.basket_lines}", body)
+        route = flat(self.get("/venues?period=week"))
+        self.assertIn(f"{reach.split_lines} строкам из {reach.basket_lines}", route)
 
     def test_panel_prints_the_ceiling_next_to_the_answer(self):
-        """Зазор словарями не лечится, и молчать о нём нельзя (П-7)."""
+        """Потолок по покрытию печатается рядом с достигнутым (Р-25)."""
         reach = self.reach()
+        body = flat(self.get("/diagnostics"))
+        self.assertIn(f"Потолок по покрытию — {reach.ceiling_lines} из "
+                      f"{reach.basket_lines} строк", body)
+        self.assertIn("потолок по покрытию", body.lower())
+
+    def test_panel_turns_the_ceiling_into_a_work_queue(self):
+        """П-7: потолок показывается заданиями, а не жалобой на ограничение."""
+        body = flat(self.get("/diagnostics"))
+        self.assertIn("Чего не хватает строкам корзины", body)
+        self.assertIn("задание", body)
+        self.assertIn("факт", body)
+        self.assertIn("пополнением словаря не лечится", body)
+
+    def test_queue_offers_a_rule_for_actionable_lines_only(self):
+        """У задания есть форма разметки, у факта — нет."""
+        from agent import reach
+        session = self.module._state["session"]
+        queue = reach.tasks(session.run, session.history, session.profile,
+                            settings=session.settings)
+        self.assertTrue([t for t in queue if t.actionable])
+        self.assertTrue([t for t in queue if not t.actionable])
         body = self.get("/diagnostics")
-        self.assertIn(f"{reach.ceiling_lines} из {reach.basket_lines}", body)
-        self.assertIn("ОДИН типичный товар", body)
+        self.assertIn("Разметить", body)
+
+    def test_smart_basket_shows_the_substituted_mark(self):
+        """Сравнение по другой марке — всё ещё ответ, но человек обязан знать."""
+        body = flat(self.get("/venues?period=week"))
+        self.assertIn("сравнили по этой вашей марке вместо", body)
+        self.assertIn("от самой частой", body)
+
+    def test_smart_basket_separates_the_two_skip_reasons(self):
+        """«Не с чем сравнить» и «нет у базовой площадки» — разные причины."""
+        body = flat(self.get("/venues?period=week"))
+        self.assertIn("сравнить не с чем (цена известна не у двух магазинов", body)
+        self.assertIn("у базового магазина этого товара нет", body)
 
     def test_panel_does_not_promise_that_pools_need_one_rule(self):
         body = self.get("/diagnostics")

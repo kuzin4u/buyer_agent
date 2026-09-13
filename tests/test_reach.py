@@ -20,7 +20,7 @@ from agent.adapters.receipts_fns import diagnostics as D                      # 
 from agent.adapters.receipts_fns.pipeline import to_history                   # noqa: E402
 from agent.config import Config, dataset_path                                 # noqa: E402
 from agent.profile import build, compare, for_period, smart_basket            # noqa: E402
-from agent.reach import chain, measure, useful                                # noqa: E402
+from agent.reach import BLOCKERS, chain, measure, tasks, useful                # noqa: E402
 from agent.settings import Settings                                          # noqa: E402
 
 
@@ -65,14 +65,19 @@ class ReachTest(unittest.TestCase):
         self.assertGreaterEqual(self.reach.ceiling_lines, self.reach.split_lines)
         self.assertLessEqual(self.reach.ceiling_lines, self.reach.basket_lines)
 
-    def test_ceiling_is_above_the_answer_and_that_is_not_coverage(self):
-        """Зазор между достигнутым и потолком словарями не лечится (П-7).
+    def test_substitution_narrowed_the_ceiling_gap(self):
+        """П-7 закрыт подстановкой регулярной марки (Р-25), но не до нуля.
 
-        Маршрут берёт у группы один типичный товар; если сравним другой товар той
-        же группы, строка не разводится. Если этот тест когда-нибудь сломается,
-        значит зазор закрыли — и тогда П-7 закрыт, а не тест устарел.
+        Часть зазора словарями не лечится вообще: товар, который берут от трёх
+        раз только в одном магазине, сравнивать не с чем.
         """
-        self.assertGreater(self.reach.ceiling_lines, self.reach.split_lines)
+        self.assertGreater(self.reach.substituted_lines, 0)
+        self.assertGreaterEqual(self.reach.ceiling_lines, self.reach.split_lines)
+
+    def test_basket_lines_count_every_line_of_the_basket(self):
+        """У маршрута три исхода, и знаменатель обязан складывать все три."""
+        basket = for_period(self.profile, "week")
+        self.assertEqual(self.reach.basket_lines, len(basket.lines))
 
     def test_shares_have_their_denominators(self):
         self.assertAlmostEqual(self.reach.grouped_share,
@@ -137,6 +142,69 @@ class MeasuredReplenishmentTest(unittest.TestCase):
                            D.group_size(fixture.run(), "vypechka"))
         self.assertLess(D.group_size(run, "moloko"),
                         D.group_size(fixture.run(), "moloko"))
+
+
+class CeilingTasksTest(unittest.TestCase):
+    """Потолок как очередь работ, а не как ограничение (Р-25, закрывает П-7)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pipeline = fixture.run()
+        cls.history = fixture.history()
+        cls.profile = fixture.profile()
+        cls.tasks = tasks(cls.pipeline, cls.history, cls.profile)
+
+    def test_only_unsplit_lines_are_listed(self):
+        reach = measure(self.pipeline, self.history, self.profile)
+        self.assertEqual(len(self.tasks),
+                         reach.basket_lines - reach.split_lines)
+
+    def test_every_task_names_a_known_blocker(self):
+        for task in self.tasks:
+            self.assertIn(task.blocker, BLOCKERS, task.group)
+            self.assertTrue(task.reason)
+
+    def test_actionable_tasks_come_first(self):
+        """Сверху то, с чем можно что-то сделать, дальше — факты о покупках."""
+        flags = [t.actionable for t in self.tasks]
+        self.assertEqual(flags, sorted(flags, reverse=True))
+
+    def test_actionable_means_the_dictionary_can_help(self):
+        """«Факт» выдавать за задание нельзя: человек будет править неправимое."""
+        for task in self.tasks:
+            if task.blocker in ("one_venue", "too_few", "outside_baseline"):
+                self.assertFalse(task.actionable, task.group)
+            if task.blocker == "blended":
+                self.assertTrue(task.actionable, task.group)
+                self.assertTrue(task.names, task.group)
+
+    def test_one_venue_task_names_the_venue(self):
+        """Без имени магазина это не объяснение, а отговорка."""
+        for task in self.tasks:
+            if task.blocker == "one_venue":
+                self.assertTrue(task.venue, task.group)
+
+    def test_both_kinds_are_present_on_this_dataset(self):
+        """Половина зазора лечится словарём, половина — нет. Обе видны."""
+        kinds = {t.actionable for t in self.tasks}
+        self.assertEqual(kinds, {True, False})
+
+    def test_alternative_blocker_tells_the_truth(self):
+        """«Слишком редко» про марку, которую берут в 70% случаев, — ложь.
+
+        У молока сравнимая марка продаётся в килограммах, а привычная в литрах:
+        причина не в частоте, и называть надо её.
+        """
+        for task in self.tasks:
+            if task.alternative_blocker == "unit":
+                self.assertNotEqual(task.alternative.unit, task.typical.unit)
+            if task.alternative_blocker == "share":
+                self.assertLess(task.alternative_share, 1 / 3)
+
+    def test_expensive_lines_come_before_cheap_ones(self):
+        for kind in (True, False):
+            amounts = [t.amount for t in self.tasks if t.actionable is kind]
+            self.assertEqual(amounts, sorted(amounts, reverse=True))
 
 
 class BrandQueueTest(unittest.TestCase):

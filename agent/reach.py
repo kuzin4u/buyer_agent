@@ -30,10 +30,12 @@
 значило бы дать этому слою знать про соседний.
 """
 
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 
 from .adapters.receipts_fns.diagnostics import coverage
 from .profile import compare, for_period, smart_basket
+from .profile.venues import MIN_OBSERVATIONS, REGULAR_SHARE_OF_TYPICAL
 
 #: Период корзины, на котором меряется разведённость. Неделя, потому что это
 #: обычный поход за продуктами; на месячной корзине строк больше, и доля
@@ -74,6 +76,8 @@ class Reach:
     #: строка всё равно не разводится. Печатать потолок обязательно, иначе
     #: пополнение словарей выглядит средством от того, что им не лечится (П-7).
     ceiling_lines: int = 0
+    #: Строки, сравнённые по другой регулярной марке той же группы (Р-25).
+    substituted_lines: int = 0
 
     @property
     def grouped_share(self):
@@ -138,7 +142,11 @@ def measure(run, history, profile, period=PERIOD, settings=None):
         comparable_shown=len(shown),
         ceiling_lines=sum(1 for line in basket.lines
                           if line.group in groups_with_comparable),
-        basket_lines=len(route.lines) + len(route.skipped),
+        substituted_lines=len(route.substituted),
+        # Знаменатель — все строки корзины, а не только те, что дошли до
+        # сравнения: у маршрута три исхода (развели, сравнить нечем, нет у
+        # базовой площадки), и сложить надо все.
+        basket_lines=route.considered,
         split_lines=len(route.lines),
         saving=route.saving_abs,
         saving_share=route.saving_pct,
@@ -215,3 +223,127 @@ def useful(before, after):
     """
     return (after.split_lines > before.split_lines
             or after.comparable_shown > before.comparable_shown)
+
+
+# --- потолок как очередь работ (П-7 закрыт решением Р-25) ---
+
+#: Чего не хватает типичному товару строки, чтобы его можно было сравнить.
+#: `actionable` значит «лечится пополнением словаря прямо с панели»; остальное —
+#: не задание, а факт о покупках, и выдавать его за задание нельзя.
+BLOCKERS = {
+    "no_key": ("у группы нет типичного товара: фасовка не определена ни у одной "
+               "позиции", True),
+    "blended": ("марка не распознана: ключ собирает разные товары, и сравнивать "
+                "их цены нельзя", True),
+    "one_venue": ("вы берёте это от трёх раз только в одном магазине — сравнить "
+                  "не с чем", False),
+    "too_few": ("ни в одном магазине не набралось трёх покупок", False),
+    "outside_baseline": ("сравнить можно, но у базовой одиночной площадки этого "
+                         "товара нет", False),
+}
+
+
+@dataclass(frozen=True)
+class Task:
+    """Строка корзины, которая не разводится, и чего ей не хватает."""
+
+    group: str
+    typical: object           # типичный товар группы; бывает None
+    blocker: str              # ключ из BLOCKERS
+    amount: float             # сколько эта строка стоит в корзине
+    names: tuple = ()         # названия внутри ключа — с чем работать
+    venue: str = None         # магазин, если дело в нём
+    alternative: object = None   # сравнимая марка группы, которую не подставили
+    alternative_share: float = None
+    #: Почему не подставили: "share" — берётся слишком редко, чтобы считать её
+    #: вашей второй маркой; "unit" — продаётся в другой единице, и ₽/кг с ₽/л
+    #: несопоставимы (SPEC §5). Причина должна называться точно: «слишком редко»
+    #: про марку, которую берут в 70% случаев, — это ложь в ответе.
+    alternative_blocker: str = None
+
+    @property
+    def reason(self):
+        return BLOCKERS[self.blocker][0]
+
+    @property
+    def actionable(self):
+        return BLOCKERS[self.blocker][1]
+
+
+def tasks(run, history, profile, period=PERIOD, settings=None,
+          min_observations=MIN_OBSERVATIONS,
+          min_share=REGULAR_SHARE_OF_TYPICAL):
+    """Неразведённые строки корзины → что с каждой можно сделать.
+
+    Это и есть бывший потолок, переведённый из ограничения в задание. Половина
+    зазора лечится словарём (марка не распознана — правило бренда расщепит ключ),
+    половина не лечится ничем: вы берёте этот товар только в одном магазине, и
+    сравнивать его цену попросту не с чем. Выдавать второе за задание нельзя —
+    человек будет раз за разом пытаться исправить то, что исправлению не
+    подлежит.
+    """
+    basket = for_period(profile, period, settings)
+    route = smart_basket(history, basket, min_observations=min_observations,
+                         min_share=min_share)
+    split = {line.instead_of or line.key for line in route.lines}
+    outside = {line.typical_key for line in route.outside_baseline}
+    comparable = {c.key for c in compare(history)}
+
+    by_key_venue = defaultdict(Counter)
+    for event in history.events:
+        if event.key is not None and event.venue:
+            by_key_venue[event.key][event.venue] += 1
+    names = defaultdict(Counter)
+    for item in run.items:
+        if item.key is not None:
+            names[item.key][item.name] += 1
+    frequencies = defaultdict(Counter)
+    for event in history.events:
+        if event.key is not None:
+            frequencies[event.key.group][event.key] += 1
+
+    out = []
+    for line in basket.lines:
+        key = line.typical_key
+        if key in split:
+            continue
+        # Сравнимая марка группы, которую подставить не удалось: показать её
+        # полезно — видно, что потолок упирается не в словарь, а в привычку или
+        # в несопоставимые единицы.
+        alternative, share, why = None, None, None
+        ranked = frequencies.get(key.group if key else None) or Counter()
+        top = ranked.most_common(1)[0][1] if ranked else 0
+        for candidate, count in ranked.most_common():
+            if candidate == key or candidate not in comparable or not top:
+                continue
+            alternative, share = candidate, count / top
+            if key is not None and candidate.unit != key.unit:
+                why = "unit"
+            elif share < min_share:
+                why = "share"
+            break
+
+        if key is None:
+            blocker, venue = "no_key", None
+        elif key in outside:
+            blocker, venue = "outside_baseline", None
+        elif key.blended:
+            blocker, venue = "blended", None
+        else:
+            enough = [v for v, n in by_key_venue[key].items()
+                      if n >= min_observations]
+            if len(enough) == 1:
+                blocker, venue = "one_venue", enough[0]
+            else:
+                blocker, venue = "too_few", None
+
+        out.append(Task(
+            group=line.group, typical=key, blocker=blocker, amount=line.amount,
+            names=tuple(n for n, _c in names[key].most_common(4)) if key else (),
+            venue=venue, alternative=alternative, alternative_share=share,
+            alternative_blocker=why))
+
+    # Дорогие строки раньше: пользу от работы мерят рублями корзины. Задания
+    # раньше фактов — по ним есть что делать.
+    out.sort(key=lambda t: (not t.actionable, -t.amount))
+    return out

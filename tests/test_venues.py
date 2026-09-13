@@ -18,6 +18,9 @@ from agent.history import Event, History, ItemKey, UNKNOWN   # noqa: E402
 from agent.settings import Settings                          # noqa: E402
 from agent.profile import venues                             # noqa: E402
 from agent.profile.basket import Basket, BasketLine          # noqa: E402
+from agent.profile import compare, for_period, smart_basket   # noqa: E402
+from agent.profile.venues import (REGULAR_SHARE_OF_TYPICAL,   # noqa: E402
+                                  key_frequencies, regular_alternative)
 
 
 def _key(label, group="syr", brand="Viola", unit="kg"):
@@ -192,6 +195,105 @@ class RankTest(unittest.TestCase):
         for s in ranked:
             self.assertGreaterEqual(s.keys, venues.MIN_KEYS_FOR_RANK)
             self.assertTrue(0.0 <= s.price_score <= 1.0)
+
+
+class RegularAlternativeTest(unittest.TestCase):
+    """Подстановка другой регулярной марки группы (Р-25, закрывает П-7).
+
+    «Типичный» и «регулярный» — не одно и то же: если две марки берутся поровну,
+    типичная одна, а регулярны обе. Сравнить цену по второй — не подмена
+    привычки; сравнить по разовой покупке — подмена.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.history = fixture.history()
+        cls.profile = fixture.profile()
+        cls.basket = for_period(cls.profile, "week")
+        cls.route = smart_basket(cls.history, cls.basket)
+
+    def test_substitution_happens_and_is_marked(self):
+        """§8.3-подобное требование: чем заменили — обязательная часть ответа."""
+        self.assertTrue(self.route.substituted)
+        for line in self.route.substituted:
+            self.assertIsNotNone(line.instead_of)
+            self.assertNotEqual(line.key, line.instead_of)
+            self.assertEqual(line.key.group, line.instead_of.group)
+
+    def test_substituted_key_keeps_the_unit(self):
+        """₽/кг и ₽/л несопоставимы: подставить одно вместо другого нельзя."""
+        for line in self.route.substituted:
+            self.assertEqual(line.key.unit, line.instead_of.unit)
+
+    def test_substituted_key_is_regular_enough(self):
+        for line in self.route.substituted:
+            self.assertGreaterEqual(line.share_of_typical, REGULAR_SHARE_OF_TYPICAL)
+
+    def test_substitution_adds_lines_against_typical_only(self):
+        """Подстановка расширяет ответ, а не подменяет его."""
+        strict = smart_basket(self.history, self.basket, min_share=1.01)
+        self.assertGreater(len(self.route.lines), len(strict.lines))
+
+    def test_a_rare_mark_is_never_substituted(self):
+        """Порог — не формальность: ниже него это уже разовая покупка."""
+        loose = smart_basket(self.history, self.basket, min_share=0.01)
+        for line in loose.substituted:
+            self.assertGreaterEqual(line.share_of_typical, 0.01)
+        strict = smart_basket(self.history, self.basket, min_share=0.9)
+        for line in strict.substituted:
+            self.assertGreaterEqual(line.share_of_typical, 0.9)
+
+    def test_regular_alternative_refuses_other_units(self):
+        frequencies = key_frequencies(self.history)
+        comparisons = {c.key: c for c in compare(self.history)}
+        for key in frequencies.get("moloko", {}):
+            alternative, _share = regular_alternative(key, comparisons, frequencies)
+            if alternative is not None:
+                self.assertEqual(alternative.unit, key.unit)
+
+
+class BaselineHonestyTest(unittest.TestCase):
+    """Оба сценария считаются по одним и тем же строкам.
+
+    Раньше база сравнения искалась пересечением площадок по ВСЕМ строкам. Пока
+    корзина была мала, пересечение существовало; с подстановкой регулярных марок
+    строк стало больше, пересечение опустело, база обнулилась — и «экономия»
+    вышла отрицательной: врозь сравнивалось с нулём.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.history = fixture.history()
+        cls.profile = fixture.profile()
+
+    def routes(self):
+        for period in ("day", "week", "month"):
+            yield period, for_period(self.profile, period), smart_basket(
+                self.history, for_period(self.profile, period))
+
+    def test_saving_is_never_negative(self):
+        for period, _basket, route in self.routes():
+            self.assertGreaterEqual(route.saving_abs, -1e-9, period)
+            self.assertGreaterEqual(route.saving_pct, -1e-9, period)
+
+    def test_every_line_is_accounted_for(self):
+        """Строка корзины — либо разведена, либо не сравнима, либо нет у базы."""
+        for period, basket, route in self.routes():
+            self.assertEqual(route.considered, len(basket.lines), period)
+
+    def test_baseline_venue_has_a_price_for_every_compared_line(self):
+        for period, _basket, route in self.routes():
+            if route.best_single is None:
+                continue
+            for line in route.lines:
+                self.assertIn(route.best_single, route.single_totals, period)
+            self.assertAlmostEqual(route.baseline_total,
+                                   route.single_totals[route.best_single])
+
+    def test_split_is_never_dearer_than_the_single_venue(self):
+        for period, _basket, route in self.routes():
+            self.assertLessEqual(route.split_total, route.baseline_total + 1e-9,
+                                 period)
 
 
 if __name__ == "__main__":

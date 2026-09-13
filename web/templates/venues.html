@@ -26,17 +26,31 @@
       <thead><tr><th>товар</th><th>магазин</th><th class="n">цена</th><th class="n">экономия</th></tr></thead>
       <tbody>
       {% for line in route.lines %}
-        <tr><td class="w">{{ line.key.label }}</td><td>{{ line.venue }}</td>
+        <tr><td class="w">{{ line.key.label }}
+          {% if line.substituted %}<br><i class="muted">сравнили по этой вашей марке
+            вместо «{{ line.instead_of.label }}» — её вы берёте
+            {{ line.share_of_typical|pct }} от самой частой</i>{% endif %}</td>
+          <td>{{ line.venue }}</td>
           <td class="n">{{ line.unit_price|money }} {{ line.unit|unit }}</td>
           <td class="n good">{{ line.saving|signed }} ₽</td></tr>
       {% endfor %}
       </tbody>
     </table>
     <p class="muted">Посчитано по {{ route.lines|length }} строкам из
-      {{ route.lines|length + route.skipped|length }} — это {{ route.covered|pct }}
-      корзины. Остальные строки сравнить не с чем: цена известна не у двух магазинов
-      сразу, и в экономию они не засчитаны. База сравнения — лучший ОДИН магазин, а
-      не текущие траты: вопрос звучит «ехать в два места или в одно».</p>
+      {{ route.considered }} — это {{ route.covered|pct }} корзины. База сравнения —
+      лучший ОДИН магазин, а не текущие траты: вопрос звучит «ехать в два места или
+      в одно», и оба сценария считаются по одним и тем же строкам.</p>
+    {% if route.substituted %}
+      <p class="muted">У {{ route.substituted|length }} строк типичный товар сравнить
+        не с чем, и цена взята по другой вашей регулярной марке той же группы. Это не
+        подмена привычки: эту марку вы покупаете сопоставимо часто — но проверьте, за
+        чем именно едете.</p>
+    {% endif %}
+    <p class="muted">Не вошло в расчёт: {{ route.skipped|length }} строк сравнить не с
+      чем (цена известна не у двух магазинов сразу){% if route.outside_baseline %},
+      ещё {{ route.outside_baseline|length }} сравнить можно, но у базового магазина
+      этого товара нет{% endif %}. В экономию они не засчитаны.
+      <a href="/diagnostics#tasks">Что с этим можно сделать</a>.</p>
   </section>
   {% endif %}
 {% else %}

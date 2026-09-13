@@ -13,7 +13,7 @@
 """
 
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 #: наблюдений у одной площадки, чтобы её медиана что-то значила (Р-2)
@@ -22,6 +22,18 @@ MIN_OBSERVATIONS = 3
 MIN_VENUES = 2
 #: сравнимых ключей, чтобы у площадки был ценовой ранг, а не одно совпадение
 MIN_KEYS_FOR_RANK = 5
+
+#: Доля от самого частого товара группы, с которой товар считается регулярным, а
+#: не случайным. Нужна там, где типичный товар сравнить не с чем, а другая ваша
+#: марка в той же группе сравнима: подставить её — не подмена привычки, если вы
+#: берёте её сопоставимо часто (П-7 закрыт решением Р-25).
+#:
+#: Почему треть. Порог взят из плато: на датасете значения от 0,33 до 0,20 дают
+#: ОДИН И ТОТ ЖЕ ответ (недельной корзине +2 строки, месячной +4), то есть выбор
+#: не стоит на лезвии. Встреченные доли — 82%, 68%, 42%, 39%, дальше обрыв ниже
+#: 20%. Снизу порог подпёрт самой сравнимостью: у такого товара уже есть не меньше
+#: трёх покупок в каждом из двух магазинов, то есть минимум шесть (Р-2).
+REGULAR_SHARE_OF_TYPICAL = 1 / 3
 
 
 @dataclass(frozen=True)
@@ -107,10 +119,19 @@ class RouteLine:
     unit_price: float
     cost: float
     baseline_cost: float      # та же строка у лучшей одиночной площадки
+    #: Типичный товар группы, вместо которого сравнивали. Не None означает, что
+    #: сравнение шло по ДРУГОЙ вашей регулярной марке, и показывать это
+    #: обязательно: иначе человек поедет за тем, чего не собирался брать.
+    instead_of: object = None
+    share_of_typical: float = None
 
     @property
     def saving(self):
         return self.baseline_cost - self.cost
+
+    @property
+    def substituted(self):
+        return self.instead_of is not None
 
 
 @dataclass(frozen=True)
@@ -118,11 +139,15 @@ class Route:
     """Маршрут экономии против покупки всего в одном месте."""
 
     lines: tuple
-    skipped: tuple            # строки корзины, которые сравнить не удалось
+    skipped: tuple            # строки, которые сравнить не удалось вовсе
     best_single: str
     single_totals: dict       # {площадка: сумма сравнимой части корзины}
     split_total: float
     baseline_total: float
+    #: Строки, которые сравнить между магазинами можно, но у одиночной площадки
+    #: их нет. В экономию они не входят: оба сценария обязаны считаться по одним
+    #: и тем же строкам, иначе разность перестаёт быть экономией.
+    outside_baseline: tuple = ()
 
     @property
     def saving_abs(self):
@@ -137,11 +162,19 @@ class Route:
         return sorted({line.venue for line in self.lines})
 
     @property
+    def considered(self):
+        return len(self.lines) + len(self.skipped) + len(self.outside_baseline)
+
+    @property
     def covered(self):
         """Доля корзины, которую удалось развести: без неё экономия — половина
         правды. Пять процентов корзины, разложенные идеально, это не экономия."""
-        total = len(self.lines) + len(self.skipped)
-        return len(self.lines) / total if total else 0.0
+        return len(self.lines) / self.considered if self.considered else 0.0
+
+    @property
+    def substituted(self):
+        """Строки, сравнённые по другой вашей регулярной марке (Р-25)."""
+        return tuple(line for line in self.lines if line.substituted)
 
 
 def _units(line):
@@ -151,8 +184,55 @@ def _units(line):
     return line.amount / line.unit_price
 
 
+def key_frequencies(history):
+    """→ {группа: {ключ: сколько раз брался}}. Чем закрывается потребность."""
+    counts = defaultdict(Counter)
+    for event in history.events:
+        if event.key is not None:
+            counts[event.key.group][event.key] += 1
+    return counts
+
+
+def regular_alternative(typical, comparisons, frequencies,
+                        min_share=REGULAR_SHARE_OF_TYPICAL):
+    """Другая ваша регулярная марка той же группы, которую МОЖНО сравнить.
+
+    «Типичный» и «регулярный» — не одно и то же. Если две марки сметаны берутся
+    поровну, типичная одна, а регулярны обе, и сравнить цену по второй — не
+    подмена привычки: человек её и так покупает. Это и закрывает П-7.
+
+    Два условия, и оба необходимы:
+
+    *Та же базовая единица.* ₽/кг и ₽/шт несопоставимы (SPEC §5), и подставить
+    одно вместо другого значит посчитать бессмысленное число. На датасете такой
+    случай есть, и он отсеивается здесь.
+
+    *Сопоставимая частота.* Ниже `min_share` от самого частого товара группы это
+    уже не ваша вторая марка, а разовая покупка, и вести за ней в другой магазин
+    нельзя — ровно та негодная замена, которую запрещает §8.10.
+    """
+    if typical is None:
+        return None, None
+    ranked = frequencies.get(typical.group)
+    if not ranked:
+        return None, None
+    top = ranked.most_common(1)[0][1]
+    if not top:
+        return None, None
+    for key, count in ranked.most_common():
+        if key == typical or key not in comparisons:
+            continue
+        if key.unit != typical.unit:
+            continue
+        share = count / top
+        if share < min_share:
+            break          # дальше по убыванию частоты только реже
+        return key, share
+    return None, None
+
+
 def smart_basket(history, basket, min_observations=MIN_OBSERVATIONS,
-                 min_venues=MIN_VENUES):
+                 min_venues=MIN_VENUES, min_share=REGULAR_SHARE_OF_TYPICAL):
     """Корзина, разведённая по площадкам, против лучшей одиночной площадки.
 
     База сравнения — не «текущие траты», а лучшая ОДИНОЧНАЯ площадка: вопрос
@@ -162,49 +242,87 @@ def smart_basket(history, basket, min_observations=MIN_OBSERVATIONS,
     Строки, которые сравнить не удалось, в экономию не засчитываются и уходят
     в skipped. Иначе достаточно было бы не найти цену у дорогой площадки,
     чтобы «сэкономить».
+
+    Если типичный товар группы сравнить не с чем, берётся другая РЕГУЛЯРНАЯ
+    марка той же группы — см. `regular_alternative`. Подстановка помечается в
+    строке (`instead_of`) и показывается всегда: сравнение по другому товару —
+    всё ещё ответ на вопрос «где дешевле», но человек обязан знать, по какому.
     """
+    # Сравнивается всё, чем вообще закрываются группы корзины, а не только
+    # типичные товары: иначе регулярную марку не на что было бы подставить.
+    frequencies = key_frequencies(history)
+    groups = {l.typical_key.group for l in basket.lines if l.typical_key}
     comparisons = {c.key: c for c in compare(
-        history, keys={l.typical_key for l in basket.lines if l.typical_key},
+        history, groups=groups,
         min_observations=min_observations, min_venues=min_venues)}
 
     priced, skipped = [], []
     for line in basket.lines:
         units = _units(line)
-        if line.typical_key not in comparisons or units is None:
+        if units is None:
+            skipped.append(line)
+            continue
+        if line.typical_key in comparisons:
+            priced.append((line, units, comparisons[line.typical_key], None, None))
+            continue
+        alternative, share = regular_alternative(
+            line.typical_key, comparisons, frequencies, min_share)
+        if alternative is None:
             skipped.append(line)
         else:
-            priced.append((line, units, comparisons[line.typical_key]))
+            priced.append((line, units, comparisons[alternative],
+                           line.typical_key, share))
 
     if not priced:
         return Route(lines=(), skipped=tuple(basket.lines), best_single=None,
                      single_totals={}, split_total=0.0, baseline_total=0.0)
 
-    # Одиночная площадка честна только там, где у неё есть цена на ВСЁ
-    # сравнимое. Иначе «лучшей» окажется та, про которую мы меньше знаем.
-    venues = set.intersection(*[{p.venue for p in c.prices} for _l, _u, c in priced])
+    # Оба сценария — «в одном месте» и «врозь» — обязаны считаться по ОДНИМ И
+    # ТЕМ ЖЕ строкам, иначе разность перестаёт быть экономией. Поэтому сначала
+    # выбирается одиночная площадка, а потом маршрут сужается до строк, которые
+    # у неё есть.
+    #
+    # Раньше здесь стояло пересечение площадок по ВСЕМ строкам, и пока корзина
+    # была мала, оно существовало. С подстановкой регулярных марок строк стало
+    # больше, пересечение опустело, база обнулилась — и экономия вышла
+    # отрицательной: «врозь» сравнивалось с нулём. Число выглядело правдоподобно,
+    # и это худший вид ошибки (Р-21).
+    covers = defaultdict(list)
+    for index, row in enumerate(priced):
+        for price in row[2].prices:
+            covers[price.venue].append(index)
     totals = {}
-    for venue in venues:
+    for venue, indexes in covers.items():
         totals[venue] = sum(
-            units * next(p.median for p in c.prices if p.venue == venue)
-            for _l, units, c in priced)
-    best_single = min(totals, key=lambda v: (totals[v], v)) if totals else None
+            priced[i][1] * next(p.median for p in priced[i][2].prices
+                                if p.venue == venue)
+            for i in indexes)
+    # Сначала покрытие, потом цена: площадка, про которую мы знаем больше, честнее
+    # дешёвой, про которую мы знаем одну строку.
+    best_single = max(covers, key=lambda v: (len(covers[v]), -totals[v], v)) \
+        if covers else None
+    outside = []
+    if best_single is not None:
+        inside = set(covers[best_single])
+        outside = [priced[i][0] for i in range(len(priced)) if i not in inside]
+        priced = [priced[i] for i in sorted(inside)]
     baseline_total = totals.get(best_single, 0.0)
 
     lines = []
-    for line, units, c in priced:
+    for line, units, c, instead_of, share in priced:
         cheapest = c.cheapest
         base = (units * next(p.median for p in c.prices if p.venue == best_single)
                 if best_single else units * cheapest.median)
         lines.append(RouteLine(
-            key=line.typical_key, unit=c.unit, units=units, venue=cheapest.venue,
+            key=c.key, unit=c.unit, units=units, venue=cheapest.venue,
             unit_price=cheapest.median, cost=units * cheapest.median,
-            baseline_cost=base))
+            baseline_cost=base, instead_of=instead_of, share_of_typical=share))
     lines.sort(key=lambda r: -r.saving)
 
     return Route(lines=tuple(lines), skipped=tuple(skipped),
                  best_single=best_single, single_totals=totals,
                  split_total=sum(r.cost for r in lines),
-                 baseline_total=baseline_total)
+                 baseline_total=baseline_total, outside_baseline=tuple(outside))
 
 
 @dataclass(frozen=True)
