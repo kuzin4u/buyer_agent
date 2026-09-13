@@ -15,6 +15,8 @@
            placeholder="Спросите словами: «уложись в 2000», «что давно не покупал»">
     <button type="submit">Спросить</button>
   </form>
+  <a class="settings-link {% if scenario == 'export' %}on{% endif %}"
+     href="/export">Экспорт</a>
   <a class="settings-link {% if scenario in ('diagnostics', 'positions') %}on{% endif %}"
      href="/diagnostics">Диагностика</a>
   <a class="settings-link {% if scenario == 'settings' %}on{% endif %}"

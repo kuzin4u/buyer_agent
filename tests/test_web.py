@@ -18,6 +18,8 @@ import unittest
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+import fixture  # noqa: E402
+
 try:
     from fastapi.testclient import TestClient
     WEB = True
@@ -199,6 +201,7 @@ class WebTest(unittest.TestCase):
         with SettingsStore(db_path=os.environ["BUYER_AGENT_DB"]) as store:
             self.assertEqual(store.load().required_groups, ())
 
+    @fixture.slow
     def test_stars_reach_the_choice_of_venue(self):
         for venue in ("Глобус", "Пятёрочка", "Магнит", "Перекрёсток", "Лента",
                       "Вкусвилл", "Дикси", "Ашан", "Метро", "Атак"):
@@ -208,6 +211,7 @@ class WebTest(unittest.TestCase):
         self.assertIn("★★★★★", body)
         self.assertIn("качество", body)
 
+    @fixture.slow
     def test_candidate_tier_toggle_rebuilds_the_history(self):
         """Галочка меняет состав истории, а не только профиль: прогон заново.
 
@@ -219,7 +223,7 @@ class WebTest(unittest.TestCase):
         self.client.post("/settings", data={"include_candidates": "true"})
         after = self.get("/profile")
         self.assertNotEqual(before, after)
-        self.assertTrue(self.module._state["session"].settings.include_candidates)
+        self.assertTrue(self.module.state()[0].settings.include_candidates)
         self.client.post("/settings", data={"budget": ""})     # вернуть как было
 
     def test_pipeline_run_is_kept_for_the_diagnostics_panel(self):
@@ -229,7 +233,7 @@ class WebTest(unittest.TestCase):
         нераспознанных позиций, чем определена фасовка у каждой позиции и топы
         очередей на пополнение считаются именно по нему (SPEC §8.11).
         """
-        run = self.module._state["session"].run
+        run = self.module.state()[0].run
         self.assertIsNotNone(run)
         for attribute in ("items", "tier_stat", "unknown_food_count", "rules"):
             self.assertTrue(hasattr(run, attribute), attribute)
@@ -245,6 +249,82 @@ class WebTest(unittest.TestCase):
         from agent.store import SettingsStore
         with SettingsStore(db_path=os.environ["BUYER_AGENT_DB"]) as store:
             self.assertNotIn("Ларёк", store.load().venue_ratings)
+
+
+@unittest.skipUnless(WEB, REASON)
+class ApiTest(unittest.TestCase):
+    """JSON API: то, чем пользуется бот (ОА-1) и экспорт профиля (§9)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        os.environ["BUYER_AGENT_DB"] = os.path.join(cls.dir, "state.db")
+        import web.app as app_module
+        cls.module = app_module
+        cls.module.reset_state()
+        cls.client = TestClient(app_module.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.module.reset_state()
+        os.environ.pop("BUYER_AGENT_DB", None)
+
+    def json(self, url):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, url)
+        return response.json()
+
+    def test_scenarios_are_listed_for_the_bot(self):
+        data = self.json("/api/scenarios")
+        self.assertEqual(len(data["scenarios"]), 8)
+        self.assertIn("smart", data)
+
+    def test_ask_answers_with_core_numbers(self):
+        data = self.json("/api/ask?q=где дешевле")
+        self.assertTrue(data["understood"])
+        self.assertEqual(data["scenario"], "venues")
+        self.assertIn("сравнимых товаров", data["facts"])
+
+    def test_ask_by_scenario_name(self):
+        data = self.json("/api/ask?scenario=choose")
+        self.assertEqual(data["scenario"], "choose")
+        self.assertTrue(data["facts"])
+
+    def test_ask_reports_a_missing_parameter(self):
+        data = self.json("/api/ask?q=уложись")
+        self.assertEqual(data["missing"], ["amount"])
+
+    def test_ask_says_when_it_did_not_understand(self):
+        data = self.json("/api/ask?q=сколько стоит луна")
+        self.assertFalse(data["understood"])
+        self.assertTrue(data["buttons"])
+
+    def test_without_a_key_the_answer_is_the_basic_layer(self):
+        """§8.9: без ключа агент работает, а не отказывает."""
+        key = os.environ.pop("ANTHROPIC_API_KEY", None)
+        try:
+            data = self.json("/api/ask?q=где дешевле")
+            self.assertFalse(data["smart"])
+            self.assertTrue(data["facts"])
+        finally:
+            if key is not None:
+                os.environ["ANTHROPIC_API_KEY"] = key
+
+    def test_export_matches_the_frozen_schema(self):
+        from agent import export
+        data = self.json("/api/export")
+        self.assertEqual(export.validate(data), [])
+
+    def test_export_page_shows_what_is_excluded(self):
+        body = flat(self.client.get("/export").text)
+        self.assertIn("профиль, а не история", body)
+
+    def test_notifications_do_not_repeat(self):
+        """Память о напоминаниях живёт в ядре, а не в боте (ОА-1)."""
+        first = self.json("/api/notifications")
+        second = self.json("/api/notifications")
+        self.assertTrue(first["items"])
+        self.assertEqual(second["items"], [])
 
 
 @unittest.skipUnless(WEB, REASON)
@@ -277,11 +357,18 @@ class DiagnosticsTest(unittest.TestCase):
         return response.text
 
     def rules(self):
-        return self.module._state["store"].rules()
+        _session, store, _parser = self.module.state()
+        return store.rules()
 
     def reach(self):
+        """Мера по текущему состоянию процесса.
+
+        Состояние берётся через `state()`, а не из приватного словаря: словарь
+        пуст, пока не собрана сессия, и тест, прочитавший его напрямую, работал
+        только если до него уже сходил какой-то другой тест.
+        """
         from agent import reach
-        session = self.module._state["session"]
+        session, _store, _parser = self.module.state()
         return reach.measure(session.run, session.history, session.profile,
                              settings=session.settings)
 
@@ -331,7 +418,7 @@ class DiagnosticsTest(unittest.TestCase):
     def test_queue_offers_a_rule_for_actionable_lines_only(self):
         """У задания есть форма разметки, у факта — нет."""
         from agent import reach
-        session = self.module._state["session"]
+        session, _store, _parser = self.module.state()
         queue = reach.tasks(session.run, session.history, session.profile,
                             settings=session.settings)
         self.assertTrue([t for t in queue if t.actionable])
@@ -380,6 +467,7 @@ class DiagnosticsTest(unittest.TestCase):
 
     # --- пополнение с измерением ---
 
+    @fixture.slow
     def test_replenishment_measures_the_main_question(self):
         """То, ради чего всё: после правила видно движение ответа, а не процентов."""
         before = self.reach()
@@ -394,6 +482,7 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertIn("Разводится по магазинам", body)
         self.assertIn("приблизило ответ на главный вопрос", body)
 
+    @fixture.slow
     def test_rule_effect_is_remembered_and_shown_later(self):
         self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
         rule = self.rules()[0]
@@ -402,12 +491,14 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertTrue(decisive)
         self.assertIn("Ваши правила", self.get("/diagnostics"))
 
+    @fixture.slow
     def test_rule_that_unlocks_nothing_says_so_instead_of_claiming_success(self):
         response = self.add(kind="brand", brand="Оленица", match="ОЛЕНИЦ")
         body = self.get(response.headers["location"])
         self.assertIn("не сдвинулся", body)
         self.assertIn("не хватает наблюдений", body)
 
+    @fixture.slow
     def test_category_rule_reports_reclassified_positions(self):
         """Исправление отнесения главную меру не двигает — и это не бесполезность."""
         response = self.add(kind="category", group="vypechka", match="ШОК.*МОЛ")
@@ -416,6 +507,7 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertIn("Переотнесено позиций", body)
         self.assertIn("исправление отнесения", body)
 
+    @fixture.slow
     def test_user_rule_changes_the_answer_of_8_6(self):
         """Правило должно дойти до страницы, а не только до панели."""
         before = self.get("/venues")
@@ -424,6 +516,7 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertNotEqual(before, after)
         self.assertIn("ДСК", after)
 
+    @fixture.slow
     def test_rollback_is_measured_too(self):
         self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
         with_rule = self.reach()
@@ -454,6 +547,7 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertIn("Нужны и образец", response.text)
         self.assertEqual(self.rules(), [])
 
+    @fixture.slow
     def test_duplicate_rule_is_refused(self):
         self.add(kind="brand", brand="ДСК", match="ДСК ОГУРЦЫ")
         response = self.client.post("/diagnostics/rules",

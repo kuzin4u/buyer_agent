@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Экспорт профиля{% endblock %}
+{% block body %}
+<h1>Экспорт профиля <span class="muted">— SPEC §9, схема заморожена в С1</span></h1>
+
+<section class="card kpis">
+  <div><b>{{ payload.schema_version }}</b><span>версия схемы</span></div>
+  <div><b>{{ payload.basket|length }}</b><span>групп в корзине</span></div>
+  <div><b>{{ payload.price_anchors|length }}</b><span>ценовых ориентиров</span></div>
+  <div><b>{{ payload.horizon }}</b><span>горизонт</span></div>
+  <div><b>{{ (size / 1024)|round|int }} КБ</b><span>размер</span></div>
+</section>
+
+<section class="card">
+  <p>Это единственный законный мост к агенту покупателя Системы: у него есть
+    каталог и мандат, но нет никакого представления о человеке. Забрать файл
+    можно по ссылке <a href="/api/export"><code>/api/export</code></a>.</p>
+  <p class="muted">Наружу уходит профиль, а не история. В экспорте нет и не будет:
+    {% for key in excluded %}<code>{{ key }}</code>{% if not loop.last %}, {% endif %}{% endfor %} —
+    принимающей стороне нужно знать, что вы берёте и почём, а не где вы были во
+    вторник. Ценовой ориентир строится только внутри одного товара и только там,
+    где наблюдений хватает на медиану; товары с нераспознанной маркой наружу не
+    уходят — внутри такого ключа разные товары.</p>
+</section>
+
+<section class="card">
+  <h2>Содержимое</h2>
+  <pre class="code">{{ pretty[:4000] }}{% if size > 4000 %}
+… ещё {{ size - 4000 }} байт{% endif %}</pre>
+</section>
+{% endblock %}

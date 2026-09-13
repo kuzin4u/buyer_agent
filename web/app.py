@@ -12,6 +12,7 @@
 нужно, но только если поменялся состав истории (см. `Session.apply`).
 """
 
+import json
 import os
 import threading
 
@@ -24,9 +25,11 @@ from agent.adapters.receipts_fns import Pipeline, load_receipts
 from agent.adapters.receipts_fns.pipeline import to_history
 from agent.config import Config, dataset_path
 from agent.adapters.receipts_fns import diagnostics as D
-from agent.core import Parser, SCENARIOS, Session, run_scenario
+from agent.core import Intent, Parser, SCENARIOS, Session, run_scenario
+from agent.core import smart as S
+from agent import export as E
 from agent.profile import for_period
-from agent.store import RulesStore
+from agent.store import Notifications
 from agent import reach as R
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -133,7 +136,7 @@ def state(base=BASE, db_path=None):
     """Сессия, хранилище и разбор — собираются один раз на процесс."""
     with _lock:
         if _state["session"] is None:
-            store = RulesStore(base=base,
+            store = Notifications(base=base,
                                db_path=db_path or os.environ.get(DB_ENV) or None)
             store.import_json_once()
             settings = store.load()
@@ -474,3 +477,103 @@ async def delete_rule(request: Request, rule_id: int):
                       settings=session.settings)
     return page(request, "diagnostics",
                 diagnostics_context(rollback=_effect(before, after)))
+
+
+# --- умный слой §8.9 и API для бота ---
+
+_limiter = S.Limiter()
+
+
+def smart_answer(query, session, fallback=None):
+    """Умный слой поверх базового. Не получилось — пусто, и это норма."""
+    if not S.available():
+        return None
+    result = S.answer(query, session, limiter=_limiter, fallback=fallback)
+    return result
+
+
+@app.get("/api/scenarios")
+def api_scenarios():
+    """Что умеет ядро — для бота и любого другого клиента."""
+    _session, _store, parser = state()
+    return {"scenarios": parser.buttons(), "smart": S.available()}
+
+
+@app.get("/api/ask")
+def api_ask(q: str = "", scenario: str = None, smart: bool = True):
+    """Запрос → ответ ядра, при возможности с объяснением модели.
+
+    Бот ходит сюда и ничего не считает сам (ОА-1). В ответе всегда есть числа
+    ядра; объяснение модели — необязательная добавка, и её отсутствие не мешает
+    ответу.
+    """
+    session, _store, parser = state()
+    intent = parser.parse(q, SCENARIOS) if q else None
+
+    if scenario:
+        intent = Intent(query=q or scenario, scenario=scenario, params={})
+    if intent is None or not intent.understood:
+        result = smart_answer(q, session, fallback=intent) if smart else None
+        if result is not None and result.ok:
+            return {"understood": True, "scenario": result.intent.scenario,
+                    "params": result.intent.params, "text": result.text,
+                    "facts": S.facts(result.intent.scenario, result.payload),
+                    "smart": True}
+        return {"understood": False, "smart": False,
+                "reason": (result.reason if result is not None
+                           else "не понял запрос"),
+                "buttons": parser.buttons()}
+    if intent.missing:
+        return {"understood": True, "scenario": intent.scenario,
+                "missing": list(intent.missing), "smart": False,
+                "reason": f"не хватает: {', '.join(intent.missing)}"}
+
+    payload = run_scenario(intent.scenario, session, **intent.params)
+    answer = {"understood": True, "scenario": intent.scenario,
+              "params": intent.params, "smart": False,
+              "facts": S.facts(intent.scenario, payload)}
+    if smart and S.available():
+        result = S.answer(q or intent.scenario, session, limiter=_limiter,
+                          fallback=intent)
+        if result is not None and result.ok:
+            answer.update(text=result.text, smart=True)
+        elif result is not None:
+            answer["reason"] = result.reason
+    return answer
+
+
+@app.get("/api/export")
+def api_export():
+    """Экспорт профиля одним JSON по схеме, замороженной в С1 (SPEC §9)."""
+    session, _store, _parser = state()
+    return E.build(session.profile, session.history)
+
+
+@app.get("/export", name="export")
+def export_page(request: Request):
+    session, _store, _parser = state()
+    payload = E.build(session.profile, session.history)
+    return page(request, "export", {
+        "payload": payload,
+        "pretty": json.dumps(payload, ensure_ascii=False, indent=2),
+        "size": len(json.dumps(payload, ensure_ascii=False)),
+        "excluded": E.EXCLUDED})
+
+
+@app.get("/api/notifications")
+def api_notifications(limit: int = 5):
+    """Что пора напомнить. Решает ядро, помнит ядро, отправляет бот (ОА-1).
+
+    Состав напоминаний — 8.4: группы, которые берутся часто, но давно не
+    появлялись. Повтор гасится памятью в базе: одно напоминание про группу не
+    чаще раза в неделю.
+    """
+    session, store, _parser = state()
+    items = run_scenario("lapsed", session)["items"][:limit]
+    due = store.due([(f"lapsed:{item.group}:{item.last_ts[:10]}",
+                      {"group": item.group, "label": item.label,
+                       "days_since": item.days_since,
+                       "median_gap_days": round(item.median_gap_days or 0),
+                       "expected_amount": round(item.expected_amount)})
+                     for item in items])
+    return {"items": due, "checked": len(items)}

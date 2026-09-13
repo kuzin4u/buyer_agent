@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS rules (
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS rules_unique ON rules (kind, payload);
+-- Что уже отправлено пользователю. Состояние алертов живёт здесь, а не в боте:
+-- бот не хранит ничего между сообщениями (ОА-1), иначе через два спринта
+-- появится вторая копия правды, которую никто не пересчитывает.
+CREATE TABLE IF NOT EXISTS sent (
+    key     TEXT PRIMARY KEY,       -- что именно отправлено
+    sent_at TEXT NOT NULL
+);
 """
 
 
@@ -268,6 +275,50 @@ class RulesStore(SettingsStore):
             self.conn.execute(
                 "UPDATE rules SET effect = ? WHERE id = ?",
                 (json.dumps(effect, ensure_ascii=False), int(rule_id)))
+
+
+class Notifications(RulesStore):
+    """Состояние уведомлений (ОА-1, Р-4).
+
+    Бот — транспорт: он спрашивает ядро, что отправить, и отправляет. Решение,
+    что пора напомнить, и память о том, что уже напомнили, — здесь. Без этой
+    памяти напоминание уходило бы на каждый опрос, то есть каждые несколько
+    минут.
+    """
+
+    #: Одно напоминание про одну группу не чаще, чем раз в столько дней.
+    COOLDOWN_DAYS = 7
+
+    def already_sent(self, key, within_days=None):
+        within = self.COOLDOWN_DAYS if within_days is None else within_days
+        row = self.conn.execute(
+            "SELECT 1 FROM sent WHERE key = ? "
+            "AND sent_at > datetime('now', ?)",
+            (key, f"-{int(within)} days")).fetchone()
+        return bool(row)
+
+    def mark_sent(self, key):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO sent (key, sent_at) VALUES (?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET sent_at = excluded.sent_at",
+                (key,))
+
+    def due(self, items, within_days=None):
+        """Отфильтровать то, о чём ещё не напоминали, и отметить отправленным.
+
+        Отметка ставится здесь же, а не после успешной отправки: иначе сбой
+        сети у транспорта превращается в повтор, а повтор раздражает сильнее,
+        чем пропуск. Напоминание про просроченную группу придёт снова, когда
+        истечёт пауза.
+        """
+        out = []
+        for key, payload in items:
+            if self.already_sent(key, within_days):
+                continue
+            self.mark_sent(key)
+            out.append(payload)
+        return out
 
 
 def load_settings(base=BASE, db_path=None):

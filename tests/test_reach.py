@@ -103,8 +103,13 @@ class ReachTest(unittest.TestCase):
         self.assertFalse(useful(self.reach, self.reach))
 
 
+@fixture.slow
 class MeasuredReplenishmentTest(unittest.TestCase):
-    """Эффект правила меряется, а не предсказывается."""
+    """Эффект правила меряется, а не предсказывается.
+
+    Медленный класс: каждый тест прогоняет конвейер с другими конфигами, иначе
+    эффект правила не измерить (tests/run.py).
+    """
 
     @classmethod
     def setUpClass(cls):
