@@ -221,3 +221,36 @@ python3 validate.py                  # покрытие по датасету
   П-8 вопреки тому, как П-8 предлагал его закрыть.
 - Отрицательный результат тоже записывается: правило, не сдвинувшее меру, и тест,
   который пришлось удалить, — это знание, и добывать его второй раз незачем.
+
+## Ритм работы
+
+### Сессии
+- Одна сессия — одна цель с проверяемым критерием готовности.
+- Начало: `/start` — прочитать docs/core/STATUS.md «Следующая сессия», предложить план.
+- Конец: `/finish` — обновить STATUS.md и DECISIONS.md.
+- Решение по ходу работы — сразу `/decision <суть>`.
+- Долгое состояние хранится в файлах (SPEC, DECISIONS, STATUS), не в истории диалога.
+- Новая цель — `/clear`; длинная сессия с той же целью — `/compact`.
+
+### Большие задачи
+- Постановка — файл TASK.md по шаблону docs/core/TASK_TEMPLATE.md, запуск — `/task`.
+- Сначала режим планирования; код — только после утверждения плана.
+- Если ушло не туда — откат к контрольной точке, а не «исправь обратно».
+
+### Проверка
+- После крупного этапа — `/audit` (независимый подагент reviewer).
+- Раз в неделю и в конце этапа — `/verify` (сверка docs/core/ с кодом).
+
+### Особенности этого репозитория
+- SPEC.md в корне защищён хуком protect_spec.py. Решения — только в docs/DECISIONS.md.
+- Хуки пишут действия в `.claude/hooks.log`, сводка — `python3 .claude/hooks/session_summary.py`.
+- Инварианты: медиана только при ≥3 наблюдениях; §3.3 — данные не покидают устройство; модель не выдаёт чисел.
+
+### Структура репозитория (сверено по дереву 22.09.2026)
+- `agent/` — ядро: `core/` (parse, scenarios, session, smart, verify), `adapters/receipts_fns/` (loader, normalize, pipeline, rules, sku, report, diagnostics), `matching/` (catalog, budget), `profile/` (basket, prices, spending, venues, lapsed, build), плюс config, history, intake, plan, reach, store, export, settings
+- `web/` — Flask-подобное приложение: `app.py`, `templates/` (17 страниц), `static/`
+- `bot/` — Telegram-бот (тонкий): api, format, main
+- `config/` — справочники: brands, categories, intents, normalization, shops
+- `data/receipts.json` — датасет чеков (открыт)
+- `tests/` — 25 тестов + `run.py`
+- Документы: ваш `docs/DECISIONS.md` — журнал решений; наш набор — в `docs/core/`

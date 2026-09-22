@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Read(./**/*.key)",
+      "Read(./**/*.pem)",
+      "Read(./**/secrets/**)",
+      "Bash(cat .env:*)",
+      "Bash(cat ./.env:*)"
+    ],
+    "allow": [
+      "Bash(python3 tests/run.py:*)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(python3 validate.py:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_spec.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
