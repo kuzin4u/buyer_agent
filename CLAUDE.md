@@ -244,13 +244,13 @@ python3 validate.py                  # покрытие по датасету
 ### Особенности этого репозитория
 - SPEC.md в корне защищён хуком protect_spec.py. Решения — только в docs/DECISIONS.md.
 - Хуки пишут действия в `.claude/hooks.log`, сводка — `python3 .claude/hooks/session_summary.py`.
-- Инварианты: медиана только при ≥3 наблюдениях; §3.3 — данные не покидают устройство; модель не выдаёт чисел.
+- Инварианты: медиана только при ≥3 наблюдениях; §3.3 — данные не покидают контур пользователя по умолчанию, см. Р-29; модель не выдаёт чисел.
 
 ### Структура репозитория (сверено по дереву 22.09.2026)
 - `agent/` — ядро: `core/` (parse, scenarios, session, smart, verify), `adapters/receipts_fns/` (loader, normalize, pipeline, rules, sku, report, diagnostics), `matching/` (catalog, budget), `profile/` (basket, prices, spending, venues, lapsed, build), плюс config, history, intake, plan, reach, store, export, settings
-- `web/` — Flask-подобное приложение: `app.py`, `templates/` (17 страниц), `static/`
+- `web/` — приложение на FastAPI: `app.py`, `templates/` (17 шаблонов: 15 страниц + `base`, `_chain`), `static/`
 - `bot/` — Telegram-бот (тонкий): api, format, main
 - `config/` — справочники: brands, categories, intents, normalization, shops
 - `data/receipts.json` — датасет чеков (открыт)
-- `tests/` — 25 тестов + `run.py`
+- `tests/` — 24 тестовых модуля `test_*.py` + `fixture.py` + `run.py`
 - Документы: ваш `docs/DECISIONS.md` — журнал решений; наш набор — в `docs/core/`
